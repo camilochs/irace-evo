@@ -74,3 +74,9 @@ _snaps
 
 .idea
 *.Rproj
+
+# irace-evo
+.DS_Store
+..Rcheck/
+.claude/
+.vscode/

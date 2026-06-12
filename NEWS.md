@@ -1,3 +1,24 @@
+# irace-evo (fork of irace 4.2.0.9000) — 2026-06
+
+This fork, **irace-evo**, extends irace with LLM-based code evolution
+(Chacón Sartori & Blum; arXiv:2511.14794). Changes relative to upstream
+irace (López-Ibáñez et al.):
+
+ * New: `R/code_evolution.R` — code-evolution engine wired into the irace
+   loop via `codeEvolution`, `codeEvolutionConfig`, `codeEvolutionVariants`
+   scenario options.
+ * New: `inst/python/` — Python backend (LLM service for OpenAI/Anthropic,
+   Always-From-Original variant generation, progressive context management,
+   language handlers for C++/Python/Java, compile-validation).
+ * New: `inst/templates/code-evolution.json` and evolution target-runner
+   templates; SLURM support.
+ * New: `examples/tsp-ga-evolution/` — runnable end-to-end example.
+ * Modified: `R/irace.R`, `R/scenario.R`, `R/irace-options.R`,
+   `DESCRIPTION` (new options, Suggests: reticulate, jsonlite).
+ * Removed: `GenericWrapper4AC/` (third-party wrapper bundled upstream;
+   not used by irace-evo).
+ * Renamed: upstream `README.md` preserved as `README-irace.md`.
+
 **If you are viewing this file on CRAN, please check [latest news on the irace website](https://mlopez-ibanez.github.io/irace/news/index.html) where the formatting is also better.**
 
 # irace (development version)
