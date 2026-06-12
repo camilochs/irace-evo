@@ -1,0 +1,25 @@
+# Quick test scenario for irace-evo
+parameterFile = "./parameters.txt"
+execDir = "./"
+logFile = "./irace-evo-test.Rdata"
+
+trainInstancesDir = "./instances/"
+targetRunner = "./target-runner"
+maxExperiments = 15        # Very limited for quick test
+parallel = 3
+
+confidence = 0.95
+firstTest = 2
+eachTest = 1
+
+## Code Evolution Settings (irace-evo)
+codeEvolution=TRUE
+codeEvolutionConfig = "./code-evolution.json"
+codeEvolutionVariants = 2
+
+elitist = 1
+elitistNewInstances = 1
+elitistLimit = 2
+
+quiet = 0
+debugLevel = 1

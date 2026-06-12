@@ -190,6 +190,11 @@ checkScenario <- function(scenario = defaultScenario())
   {
     if (is.logical(x)) return(x)
     if (is.na(x)) return(as.logical(NA))
+    # Handle "TRUE"/"FALSE" strings
+    if (is.character(x)) {
+      if (toupper(trimws(x)) == "TRUE") return(TRUE)
+      if (toupper(trimws(x)) == "FALSE") return(FALSE)
+    }
     # We handle "0" and "1" but not "TRUE" and "FALSE".
     x <- suppressWarnings(as.integer(x))
     if (is.na(x) || (x != 0L && x != 1L)) {
@@ -504,6 +509,34 @@ checkScenario <- function(scenario = defaultScenario())
            "t-test-bonferroni" =, # Fall-through,
            "t.bonferroni" = "t.bonferroni",
            check.valid.param("testType"))
+
+  # Code Evolution validation
+  if (scenario$codeEvolution) {
+    # Validate code evolution config file
+    if (is.null.or.empty(scenario$codeEvolutionConfig)) {
+      irace_error("When codeEvolution == TRUE, codeEvolutionConfig must be specified.")
+    }
+    scenario$codeEvolutionConfig <- path_rel2abs(scenario$codeEvolutionConfig)
+    file.check(scenario$codeEvolutionConfig, readable = TRUE,
+               text = paste0("code evolution configuration file ", quote.param("codeEvolutionConfig")))
+    
+    # Validate variants number
+    if (scenario$codeEvolutionVariants <= 0) {
+      irace_error(quote.param("codeEvolutionVariants"), " must be >= 1")
+    }
+    
+    # Ensure elitist is enabled for code evolution
+    if (!scenario$elitist) {
+      irace_warning("Code evolution requires elitist=TRUE. Setting elitist=TRUE automatically.")
+      scenario$elitist <- TRUE
+    }
+    
+    # Check if reticulate is available for Python backend
+    if (!requireNamespace("reticulate", quietly = TRUE)) {
+      irace_error("Code evolution requires the 'reticulate' package for Python integration.")
+    }
+  }
+
   scenario
 }
 
@@ -637,6 +670,12 @@ printScenario <- function(scenario)
 #'      \item{`boundDigits`}{Precision used for calculating the execution time. It must be specified when capping is enabled. (Default: `0`)}
 #'      \item{`boundPar`}{Penalization constant for timed out executions (executions that reach `boundMax` execution time). (Default: `1`)}
 #'      \item{`boundAsTimeout`}{Replace the configuration cost of bounded executions with `boundMax`. (Default: `1`)}
+#'    }
+#'  \item Code Evolution:
+#'    \describe{
+#'      \item{`codeEvolution`}{Enable automatic code evolution using LLMs. When enabled, irace-evo will generate and evolve algorithm variants. (Default: `"FALSE"`)}
+#'      \item{`codeEvolutionConfig`}{Path to the code evolution configuration file containing source files, build settings, and LLM configuration. (Default: `"./code-evolution.json"`)}
+#'      \item{`codeEvolutionVariants`}{Number of code variants to generate and evaluate per iteration. (Default: `5`)}
 #'    }
 #'  \item Recovery:
 #'    \describe{

@@ -1,0 +1,284 @@
+#!/bin/bash
+###############################################################################
+# Target Runner for TSP-GA irace-evo Example
+# 
+# This script runs the appropriate executable based on whether we're in:
+# - Standard irace mode: uses ./bin/brkga  
+# - irace-evo mode: uses variant executable based on configuration ID
+#
+# OPTIMIZATION MODE:
+# Set MAXIMIZE=1 as environment variable for maximization problems
+# Default is minimization (MAXIMIZE=0 or unset)
+#
+# PARAMETERS:
+# $1 is the candidate configuration number
+# $2 is the instance ID  
+# $3 is the seed
+# $4 is the instance name
+# The rest ($* after `shift 4') are parameters to the run
+#
+# RETURN VALUE:
+# For minimization: prints the cost to be minimized
+# For maximization: prints the negative cost (so irace can minimize -objective)
+# Exit with 0 if no error, with 1 in case of error
+###############################################################################
+
+error() {
+    echo "`TZ=UTC date`: $0: error: $@" >&2
+    exit 1
+}
+
+debug() {
+    if [ "$DEBUG" = "1" ]; then
+        echo "`TZ=UTC date`: $0: debug: $@" >&2
+    fi
+}
+
+# Función segura para compilar, evitando condiciones de carrera en ejecuciones paralelas.
+# Uso: compile_if_needed <fichero_fuente.cpp> <fichero_ejecutable_destino>
+compile_if_needed() {
+    local source_file=$1
+    local executable_file=$2
+    local lock_dir="./bin/.compile.lock"
+
+    # 1. Comprobar si la compilación es realmente necesaria
+    if [ ! -f "$source_file" ]; then
+        error "Fichero fuente no encontrado: $source_file"
+    fi
+
+    if [ ! -x "$executable_file" ] || [ "$source_file" -nt "$executable_file" ]; then
+        
+        # 2. Bucle para esperar si otro proceso ya está compilando.
+        # El comando 'mkdir' es atómico, lo que lo hace seguro para crear bloqueos.
+        while ! mkdir "$lock_dir" 2>/dev/null; do
+            debug "Esperando el bloqueo de compilación para $executable_file..."
+            sleep 1 # Esperar un segundo y volver a intentar
+        done
+
+        # 3. Una vez obtenido el bloqueo, ASEGURARSE de liberarlo al final.
+        # 'trap' garantiza que el directorio de bloqueo se elimina incluso si el script falla o es interrumpido.
+        trap "rmdir '$lock_dir' 2>/dev/null" EXIT
+
+        # 4. VOLVER A COMPROBAR la condición, por si otro proceso ya compiló mientras esperábamos.
+        if [ ! -x "$executable_file" ] || [ "$source_file" -nt "$executable_file" ]; then
+            debug "Bloqueo obtenido. Compilando $source_file -> $executable_file"
+            g++ -O3 -std=c++17 -Wall "$source_file" -o "$executable_file" 2>/dev/null
+            if [ $? -ne 0 ]; then
+                # Si la compilación falla, eliminamos el bloqueo y salimos con error.
+                rmdir "$lock_dir" 2>/dev/null
+                trap - EXIT # Desactivar el trap anterior
+                error "La compilación de '$source_file' ha fallado."
+            fi
+            debug "Compilación exitosa."
+        else
+            debug "Compilación para $executable_file ya no es necesaria (otro proceso la completó)."
+        fi
+
+        # 5. Liberar el bloqueo y desactivar el trap.
+        rmdir "$lock_dir" 2>/dev/null
+        trap - EXIT
+    else
+        debug "Usando el ejecutable existente: $executable_file"
+    fi
+}
+
+
+# Parse arguments given by irace
+CONFIG_ID=$1
+INSTANCE_ID=$2
+SEED=$3
+INSTANCE=$4
+shift 4 || error "Not enough parameters"
+CONFIG_PARAMS=$*
+
+# Check optimization mode
+MAXIMIZE=${MAXIMIZE:-0}  # Default to minimization if not set
+
+debug "Configuration ID: $CONFIG_ID, Instance: $INSTANCE, Seed: $SEED"
+debug "Parameters: $CONFIG_PARAMS"
+debug "Optimization mode: $([ "$MAXIMIZE" = "1" ] && echo "MAXIMIZATION" || echo "MINIMIZATION")"
+
+# Check if instance file exists
+if [ ! -f "$INSTANCE" ]; then
+    error "Instance file not found: $INSTANCE"
+fi
+
+# Create bin directory if it doesn't exist
+mkdir -p bin
+
+# Determine which executable to use
+VARIANT_MAP_FILE=".irace_evo_variants.csv"
+
+if [ -f "$VARIANT_MAP_FILE" ] && [ -s "$VARIANT_MAP_FILE" ]; then
+    # irace-evo mode: use variant executable based on configuration ID
+    debug "irace-evo mode detected: using variant mapping"
+    
+    # Safe awk call with error handling
+    EXE_PATH=$(awk -F',' -v config="$CONFIG_ID" '$1 == config {print $2; exit}' "$VARIANT_MAP_FILE" 2>/dev/null || echo "")
+    
+    if [ -z "$EXE_PATH" ]; then
+        debug "No direct mapping for config $CONFIG_ID, using round-robin assignment"
+        # Safe awk call to count variants
+        TOTAL_VARIANTS=$(awk 'END {print NR-1}' "$VARIANT_MAP_FILE" 2>/dev/null || echo "0")
+        
+        if [ "$TOTAL_VARIANTS" -le 0 ] || [ -z "$TOTAL_VARIANTS" ]; then
+            debug "No valid variants found in $VARIANT_MAP_FILE, falling back to standard mode"
+            rm -f "$VARIANT_MAP_FILE" # Remove corrupted file
+            EXECUTABLE="./bin/brkga"
+            compile_if_needed "src/brkga.cpp" "$EXECUTABLE"
+        else
+            VARIANT_INDEX=$(( (CONFIG_ID - 1) % TOTAL_VARIANTS + 1 ))
+            EXE_PATH=$(awk -F',' -v variant="$VARIANT_INDEX" 'NR == variant + 1 {print $2; exit}' "$VARIANT_MAP_FILE" 2>/dev/null || echo "")
+            debug "Assigned config $CONFIG_ID to variant $VARIANT_INDEX: $EXE_PATH"
+            if [ -z "$EXE_PATH" ]; then
+                debug "Failed to assign variant for configuration ID $CONFIG_ID, falling back to standard mode"
+                EXECUTABLE="./bin/brkga"
+                compile_if_needed "src/brkga.cpp" "$EXECUTABLE"
+            fi
+        fi
+    fi
+    
+    # Only process EXE_PATH if it's not empty
+    if [ -n "$EXE_PATH" ]; then
+        EXECUTABLE=$(echo "$EXE_PATH" | sed 's/^"\(.*\)"$/\1/')
+        debug "Using evolved variant: $EXECUTABLE"
+        
+        if [ ! -f "$EXECUTABLE" ]; then
+            debug "Variant executable not found: $EXECUTABLE. Falling back to standard mode..."
+            rm -f "$VARIANT_MAP_FILE" # Remove the map to prevent future attempts
+            EXECUTABLE="./bin/brkga"
+            # Llamada segura a la compilación
+            compile_if_needed "src/brkga.cpp" "$EXECUTABLE"
+            debug "Using original algorithm: $EXECUTABLE"
+        elif [ ! -x "$EXECUTABLE" ]; then
+            error "Variant executable is not executable: $EXECUTABLE"
+        fi
+    fi
+    
+else
+    # Standard irace mode OR first iteration of irace-evo
+    debug "Standard irace mode: using original algorithm"
+    
+    if [ -f "./code-evolution.json" ]; then
+        # Clean old executables and sources on first run
+        if [ ! -f "./bin/.cleaned" ]; then
+            debug "Cleaning old executables and source directories..."
+            rm -rf ./bin/*
+            rm -rf ./irace-evo-sources
+            touch ./bin/.cleaned
+        fi
+        
+        # Extract source file path from JSON
+        SOURCE_FILE=$(grep -o '"source_file"[[:space:]]*:[[:space:]]*"[^"]*"' ./code-evolution.json | cut -d'"' -f4)
+        if [ -z "$SOURCE_FILE" ]; then
+            error "Could not extract source_file from code-evolution.json"
+        fi
+        debug "Found source file in config: $SOURCE_FILE"
+        BASE_NAME=$(basename "$SOURCE_FILE" .cpp)
+        EXECUTABLE="./bin/$BASE_NAME"
+
+        # Llamada segura a la compilación
+        compile_if_needed "$SOURCE_FILE" "$EXECUTABLE"
+    else
+        # Fallback to hardcoded values if no JSON config
+        debug "No JSON config found, using fallback"
+        SOURCE_FILE="src/brkga.cpp"
+        EXECUTABLE="./bin/brkga"
+        
+        # Llamada segura a la compilación
+        compile_if_needed "$SOURCE_FILE" "$EXECUTABLE"
+    fi
+fi
+
+# Create output files for this run
+STDOUT=c${CONFIG_ID}-${INSTANCE_ID}-${SEED}.stdout
+STDERR=c${CONFIG_ID}-${INSTANCE_ID}-${SEED}.stderr
+
+# Build command to execute
+CMD="$EXECUTABLE -i $INSTANCE --seed $SEED $CONFIG_PARAMS -t 120 -tuning"
+
+debug "Executing: $CMD"
+debug "Using executable: $EXECUTABLE"
+
+# Execute the algorithm with timeout (margin for algorithm completion)
+# Suppress shell segfault messages by redirecting stderr temporarily
+{
+    bash -c "timeout 1100 $CMD" > "$STDOUT" 2> "$STDERR"
+    RETVAL=$?
+} 2>/dev/null
+
+# Function to return penalty and clean up
+return_penalty() {
+    local penalty_value=$1
+    local reason=$2
+    
+    if [ "$MAXIMIZE" = "1" ]; then
+        penalty_value="-999999"
+    else
+        penalty_value="999999"
+    fi
+    
+    echo "$penalty_value"
+    debug "Returning penalty $penalty_value: $reason"
+    rm -f "$STDOUT" "$STDERR"
+    exit 0
+}
+
+# Check for timeout (likely infinite loop)
+if [ $RETVAL -eq 124 ]; then
+    return_penalty "" "Algorithm timed out (possible infinite loop)"
+fi
+
+# Check for segmentation fault (common exit codes: 11, 139) or segfault messages
+if [ $RETVAL -eq 11 ] || [ $RETVAL -eq 139 ] || [ $RETVAL -eq 134 ] || grep -q "Segmentation fault" "$STDERR" 2>/dev/null; then
+    return_penalty "" "Algorithm crashed (segmentation fault or abort)"
+fi
+
+# Check for other execution errors
+if [ $RETVAL -ne 0 ]; then
+    if [ -s "$STDERR" ]; then
+        debug "Algorithm execution failed with return code $RETVAL. Error: $(cat $STDERR)"
+    fi
+    return_penalty "" "Algorithm execution failed with return code $RETVAL"
+fi
+
+# Check if we have output
+if [ ! -s "$STDOUT" ]; then
+    return_penalty "" "No output produced by algorithm"
+fi
+
+# Extract cost from output
+COST=$(head -n 1 "$STDOUT" | grep -o -E '^[[:space:]]*-?[0-9]+(\.[0-9]+)?')
+
+if [ -z "$COST" ]; then
+    return_penalty "" "Could not extract valid cost from output: $(cat $STDOUT | head -n 3)"
+fi
+
+# Additional validation
+if ! echo "$COST" | grep -qE '^-?[0-9]+(\.[0-9]+)?$'; then
+    return_penalty "" "Invalid cost format: $COST"
+fi
+
+COST_ABS=$(echo "$COST" | sed 's/^-//')
+if [ "$(echo "$COST_ABS > 1000000" | bc 2>/dev/null || echo 0)" -eq 1 ]; then
+    return_penalty "" "Unreasonably large cost (algorithm failure): $COST"
+fi
+
+debug "Raw cost extracted: $COST"
+
+# Adjust output based on optimization mode
+if [ "$MAXIMIZE" = "1" ]; then
+    FINAL_COST=$(echo "scale=10; -1 * $COST" | bc 2>/dev/null || echo "-$COST")
+    debug "Maximization mode: returning negative cost: $FINAL_COST"
+else
+    FINAL_COST="$COST"
+    debug "Minimization mode: returning cost as-is: $FINAL_COST"
+fi
+
+# Output the cost (this is what irace will use)
+echo "$FINAL_COST"
+
+# Clean up temporary files
+rm -f "$STDOUT" "$STDERR"
+
+exit 0

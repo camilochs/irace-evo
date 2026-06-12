@@ -1,0 +1,13 @@
+debugLevel <- 3
+targetRunner <- "./target-runner"
+execDir <- "."
+trainInstancesDir <- "./instances"  
+trainInstancesFile <- ""
+instances <- c("att48.tsp")
+maxExperiments <- 30
+nbIterations <- 2
+minNbSurvival <- 3
+codeEvolution <- TRUE
+codeEvolutionConfig <- "./inst/templates/code-evolution.json"
+codeEvolutionVariants <- 3
+parameterFile <- "./test-parameters.txt"

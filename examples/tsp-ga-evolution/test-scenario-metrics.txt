@@ -1,0 +1,10 @@
+execDir = "/home/camilocs/research/irace/examples/tsp-ga-evolution"
+parameterFile = "/home/camilocs/research/irace/examples/tsp-ga-evolution/parameters.txt" 
+logFile = "/home/camilocs/research/irace/examples/tsp-ga-evolution/irace-evo-test.Rdata"
+targetRunner = "/home/camilocs/research/irace/examples/tsp-ga-evolution/target-runner"
+trainInstancesDir = "/home/camilocs/research/irace/examples/tsp-ga-evolution/instances"
+parallel = 3
+maxExperiments = 200
+codeEvolution = TRUE
+codeEvolutionConfig = "/home/camilocs/research/irace/examples/tsp-ga-evolution/code-evolution.json"
+codeEvolutionVariants = 2

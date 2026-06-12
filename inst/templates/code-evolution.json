@@ -1,0 +1,264 @@
+{
+  "_comment": "irace-evo Configuration Template - Multi-language code evolution settings",
+  "_version": "1.0",
+  
+  "language_config": {
+    "language": "cpp",
+    "comment": "Supported languages: cpp, python, java. Each has specific parser and build configurations below."
+  },
+  
+  "source_config": {
+    "source_file": "./src/algorithm.cpp",
+    "function_name": "local_search_heuristic", 
+    "function_signature": "double local_search_heuristic(Solution& sol, int max_iter)",
+    "includes": [
+      "<vector>",
+      "<algorithm>", 
+      "<memory>",
+      "\"solution.h\"",
+      "\"utils.h\""
+    ],
+    "dependencies": [
+      "solution.cpp",
+      "utils.cpp"
+    ],
+    "comment": "Specify the source file and function to evolve. Dependencies will be included in compilation."
+  },
+  
+  "build_config": {
+    "cpp": {
+      "compiler": "g++",
+      "flags": ["-O3", "-std=c++17", "-Wall", "-Wextra"],
+      "include_paths": ["./src", "./include"],
+      "library_paths": [],
+      "libraries": [],
+      "output_dir": "./bin",
+      "compile_timeout": 30
+    },
+    "python": {
+      "interpreter": "python3",
+      "flags": ["-O"],
+      "requirements_file": "./requirements.txt",
+      "output_dir": "./bin",
+      "compile_timeout": 15
+    },
+    "java": {
+      "compiler": "javac",
+      "flags": ["-cp", ".", "-O"],
+      "classpath": ["./src", "./lib/*"],
+      "output_dir": "./bin",
+      "compile_timeout": 45
+    },
+    "comment": "Language-specific build configurations. Only the section for your chosen language will be used."
+  },
+  
+  "llm_config": {
+    "api_provider": "openai",
+    "model": "gpt-4",
+    "api_key_env": "OPENAI_API_KEY",
+    "max_retries": 3,
+    "temperature": 0.2,
+    "temperature_range": {
+      "enabled": false,
+      "min": 0.1,
+      "max": 0.8
+    },
+    "max_tokens": 1500,
+    "timeout": 60,
+    "custom_prompt_template": "",
+    "comment": "LLM configuration. Use either 'temperature' for fixed value or 'temperature_range' for random selection. Supported providers: openai, anthropic. API keys should be set as environment variables."
+  },
+  
+  "evolution_config": {
+    "initial_variants": 5,
+    "max_variants_per_iteration": 8,
+    "survival_rate": 0.6,
+    "max_compilation_failures": 5,
+    "diversity_threshold": 0.3,
+    
+    "available_strategies": [
+      "improve_efficiency",
+      "add_randomization", 
+      "modify_logic",
+      "conservative_improvement",
+      "hybrid_approach"
+    ],
+    
+    "strategy_selection": "adaptive",
+    "strategy_weights": {
+      "improve_efficiency": 0.3,
+      "add_randomization": 0.25, 
+      "modify_logic": 0.25,
+      "conservative_improvement": 0.15,
+      "hybrid_approach": 0.05
+    },
+    
+    "custom_strategies": [
+      {
+        "name": "tsp_specific_optimization",
+        "description": "TSP-specific heuristic improvements",
+        "prompt_context": "Focus on TSP problem structure: 2-opt moves, nearest neighbor improvements, edge exchange operations",
+        "examples": [
+          "implement 2-opt local search",
+          "use nearest neighbor construction",
+          "add edge exchange operators",
+          "exploit tour symmetries"
+        ]
+      }
+    ],
+    
+    "comment": "Evolution parameters. Strategies can be built-in or custom. Selection can be 'round_robin', 'weighted', or 'adaptive'."
+  },
+  
+  "validation_config": {
+    "syntax_check": true,
+    "basic_functionality_test": true,
+    "test_arguments": ["--test-mode"],
+    "test_timeout": 10,
+    "expected_output_pattern": "^[0-9]+(\\.[0-9]+)?$",
+    "unit_tests": [],
+    "performance_baseline": {
+      "enabled": false,
+      "baseline_executable": "./bin/original_algorithm",
+      "max_performance_degradation": 1.5
+    },
+    "comment": "Validation settings for generated code variants. All tests must pass for a variant to be considered valid."
+  },
+  
+  "cluster_config": {
+    "enabled": false,
+    "type": "slurm",
+    "shared_filesystem": true,
+    "distribute_variants": true,
+    "node_local_storage": "${SLURM_TMPDIR:-/tmp}",
+    "sync_method": "copy",
+    "cleanup_on_exit": true,
+    "slurm_settings": {
+      "partition": "defq",
+      "time_limit": "0-1:00:00",
+      "cpus_per_task": 1,
+      "mem_per_cpu": 8000,
+      "modules": [],
+      "job_name_prefix": "irace-evo",
+      "max_concurrent_jobs": 100,
+      "job_timeout": 3600,
+      "retry_failed_jobs": true,
+      "max_retries": 2
+    },
+    "advanced_options": {
+      "use_node_local_storage": false,
+      "preload_data": true,
+      "compress_executables": false,
+      "batch_job_submission": true,
+      "job_dependency_management": false
+    },
+    "comment": "Cluster-specific settings for SLURM environments. Enable when running on compute clusters. Configure slurm_settings for your specific cluster."
+  },
+  
+  "fallback_config": {
+    "use_previous_working": true,
+    "keep_backup_variants": 3,
+    "emergency_revert": true,
+    "min_successful_variants": 2,
+    "conservative_fallback": true,
+    "comment": "Fallback behavior when code generation fails. Ensures irace can continue with working variants."
+  },
+  
+  "logging_config": {
+    "level": "INFO",
+    "log_file": "./logs/irace-evo.log",
+    "log_variants": true,
+    "log_compilation_errors": true,
+    "log_performance_stats": true,
+    "log_llm_interactions": true,
+    "llm_log_file": "./logs/irace-evo-llm.log",
+    "comment": "Logging configuration. Set log_llm_interactions=true to see detailed LLM input/output in llm_log_file."
+  },
+  
+  "examples": {
+    "comment": "Example configurations for different use cases",
+    
+    "minimal_cpp": {
+      "language_config": {"language": "cpp"},
+      "source_config": {
+        "source_file": "./algorithm.cpp",
+        "function_name": "optimize"
+      },
+      "llm_config": {
+        "api_provider": "openai",
+        "model": "gpt-3.5-turbo"
+      }
+    },
+    
+    "python_optimization": {
+      "language_config": {"language": "python"},
+      "source_config": {
+        "source_file": "./algorithm.py",
+        "function_name": "local_search"
+      },
+      "evolution_config": {
+        "available_strategies": ["pythonic_optimization", "library_integration"]
+      }
+    },
+    
+    "java_enterprise": {
+      "language_config": {"language": "java"},
+      "source_config": {
+        "source_file": "./src/Algorithm.java", 
+        "function_name": "optimizeHeuristic"
+      },
+      "build_config": {
+        "java": {
+          "classpath": ["./lib/commons-lang3.jar", "./lib/guava.jar"]
+        }
+      }
+    },
+    
+    "random_temperature_example": {
+      "language_config": {"language": "cpp"},
+      "source_config": {
+        "source_file": "./algorithm.cpp",
+        "function_name": "optimize"
+      },
+      "llm_config": {
+        "api_provider": "openai",
+        "model": "gpt-4",
+        "temperature_range": {
+          "enabled": true,
+          "min": 0.1,
+          "max": 0.9
+        }
+      }
+    },
+    
+    "slurm_cluster_example": {
+      "language_config": {"language": "cpp"},
+      "source_config": {
+        "source_file": "./src/algorithm.cpp",
+        "function_name": "local_search_heuristic"
+      },
+      "llm_config": {
+        "api_provider": "openai",
+        "model": "gpt-4",
+        "temperature": 0.3
+      },
+      "cluster_config": {
+        "enabled": true,
+        "type": "slurm",
+        "shared_filesystem": true,
+        "slurm_settings": {
+          "partition": "compute",
+          "time_limit": "0-2:00:00",
+          "cpus_per_task": 2,
+          "mem_per_cpu": 16000,
+          "modules": ["gcc/11.2.0", "cmake/3.21.0"],
+          "max_concurrent_jobs": 50
+        }
+      },
+      "evolution_config": {
+        "initial_variants": 10,
+        "max_variants_per_iteration": 20
+      }
+    }
+  }
+}

@@ -1,0 +1,23 @@
+=== variant_1_iter3 Information ===
+Strategy: innovate_heuristic_design
+Parent: variant_1_iter2
+Executable: ./bin/algorithm_var_000_inno
+Compilation Success: TRUE
+Code Length: 19671 characters
+Fingerprint: 07dd8d82
+
+=== Generated Code Preview (First 500 chars) ===
+/***************************************************************************
+                         brkga.cpp  -  description
+                             -------------------
+    begin                : Thu Sep 26 2024
+    copyright            : (C) 2024 by Christian Blum
+    email                : christian.blum@iiia.csic.es
+ ***************************************************************************/
+
+
+/***************************************************************************
+ *            
+... (truncated)
+
+

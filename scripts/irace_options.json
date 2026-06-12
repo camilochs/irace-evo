@@ -673,6 +673,36 @@
     "description": "Parameter used to define the number of configurations sampled and evaluated at each iteration."
   },
   {
+    "name": "codeEvolution",
+    "type": "b",
+    "short": "",
+    "long": "--code-evolution",
+    "default": false,
+    "description": "Enable automatic code evolution using LLMs. When enabled, irace-evo will generate and evolve algorithm variants.",
+    "vignettes": "Enable automatic code evolution using Large Language Models (LLMs). When enabled, irace-evo will generate and evolve algorithm variants across iterations, combining parameter tuning with code generation.",
+    "section": "Code Evolution"
+  },
+  {
+    "name": "codeEvolutionConfig", 
+    "type": "p",
+    "short": "",
+    "long": "--code-evolution-config",
+    "default": "./code-evolution.json",
+    "description": "Path to the code evolution configuration file containing source files, build settings, and LLM configuration.",
+    "vignettes": "Path to the JSON configuration file that specifies source files to evolve, compilation settings, LLM parameters, and evolution strategies.",
+    "section": "Code Evolution"
+  },
+  {
+    "name": "codeEvolutionVariants",
+    "type": "i", 
+    "short": "",
+    "long": "--code-evolution-variants",
+    "default": 5,
+    "description": "Number of code variants to generate and evaluate per iteration.",
+    "vignettes": "Number of different code variants to generate using the LLM at each iteration. Higher values provide more diversity but require more computational budget.",
+    "section": "Code Evolution"
+  },
+  {
     "name": "confidence",
     "type": "r",
     "short": "",

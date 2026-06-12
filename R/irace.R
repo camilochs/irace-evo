@@ -619,12 +619,94 @@ irace_common <- function(scenario, simple, output.width = 9999L)
 
   if (!scenario$quiet) {
     order_str <- test.type.order.str(scenario$testType)
-    cat("# Best configurations (first number is the configuration ID;",
-        " listed from best to worst according to the ", order_str, "):\n", sep = "")
-    configurations_print(elite_configurations)
+    # Debug: Check code evolution status
+    if (debugLevel >= 3L) {
+      irace_note("DEBUG: scenario$codeEvolution = ", scenario$codeEvolution)
+      irace_note("DEBUG: isTRUE(scenario$codeEvolution) = ", isTRUE(scenario$codeEvolution))
+      irace_note("DEBUG: codeEvolutionVariantMap exists: ", !is.null(scenario$codeEvolutionVariantMap))
+    }
+    if (isTRUE(scenario$codeEvolution)) {
+      # Ensure variant map is available for printing
+      if (is.null(scenario$codeEvolutionVariantMap)) {
+        csv_file <- ".irace_evo_variants.csv"
+        if (file.exists(csv_file)) {
+          tryCatch({
+            variant_map <- read.csv(csv_file, stringsAsFactors = FALSE)
+            if (nrow(variant_map) > 0 && "config_id" %in% colnames(variant_map) && 
+                "variant_id" %in% colnames(variant_map)) {
+              scenario$codeEvolutionVariantMap <- variant_map
+            }
+          }, error = function(e) {
+            # Continue with regular printing if CSV loading fails
+          })
+        }
+      }
+      
+      # Use variant-aware printing for code evolution mode
+      cat("# Best configurations (first number is the configuration ID, second is the variant;",
+          " listed from best to worst according to the ", order_str, "):\n", sep = "")
+      configurations_print_with_variants(elite_configurations, scenario)
 
-    cat("# Best configurations as commandlines (first number is the configuration ID;", " listed from best to worst according to the ", order_str, "):\n", sep = "")
-    configurations_print_command (elite_configurations, scenario$parameters)
+      cat("# Best configurations as commandlines (first number is the configuration ID, second is the variant;", " listed from best to worst according to the ", order_str, "):\n", sep = "")
+      configurations_print_command_with_variants(elite_configurations, scenario$parameters, scenario)
+    } else {
+      # Standard printing for regular irace mode
+      cat("# Best configurations (first number is the configuration ID;",
+          " listed from best to worst according to the ", order_str, "):\n", sep = "")
+      configurations_print(elite_configurations)
+
+      cat("# Best configurations as commandlines (first number is the configuration ID;", " listed from best to worst according to the ", order_str, "):\n", sep = "")
+      configurations_print_command (elite_configurations, scenario$parameters)
+    }
+    
+    # Print LLM metrics summary if code evolution was used
+    if (isTRUE(scenario$codeEvolution)) {
+      if (!is.null(scenario$codeEvolutionGlobalMetrics) && 
+          scenario$codeEvolutionGlobalMetrics$total_calls > 0) {
+        print_llm_metrics_summary(scenario)
+      } else {
+        # Try to recover metrics from persistence file
+        recovered_metrics <- tryCatch({
+          if (file.exists(".irace_evo_metrics.rds")) {
+            readRDS(".irace_evo_metrics.rds")
+          } else NULL
+        }, error = function(e) NULL)
+        
+        if (!is.null(recovered_metrics) && recovered_metrics$total_calls > 0) {
+          scenario$codeEvolutionGlobalMetrics <- recovered_metrics
+          print_llm_metrics_summary(scenario)
+        } else {
+          # Try to reconstruct basic info from log or variant files
+          variant_files <- list.files("irace-evo-sources", pattern = "variant_.*\\.cpp", full.names = FALSE)
+          if (length(variant_files) > 0) {
+            cat("\n# LLM Code Evolution Summary\n")
+            cat("# ═══════════════════════════════════════════════════════════════════\n")
+            cat("# Code evolution was used but detailed metrics were not preserved.\n")
+            cat(sprintf("# Generated variant source files: %d\n", length(variant_files)))
+            if (file.exists(".irace_evo_variants.csv")) {
+            variant_map <- tryCatch({
+              read.csv(".irace_evo_variants.csv", stringsAsFactors = FALSE)
+            }, error = function(e) NULL)
+            if (!is.null(variant_map) && nrow(variant_map) > 0) {
+              unique_variants <- length(unique(variant_map$variant_id))
+              total_configs <- nrow(variant_map)
+              cat(sprintf("# Unique code variants: %d\n", unique_variants))
+              cat(sprintf("# Total configuration mappings: %d\n", total_configs))
+            }
+            }
+            cat("# ═══════════════════════════════════════════════════════════════════\n\n")
+          } else {
+            cat("\n# LLM Code Evolution Summary: No LLM calls were made during this run\n")
+            cat("# (Code evolution may have been skipped due to budget constraints)\n\n")
+          }
+        }
+      }
+      
+      # Show winning variant function comparison if winner is a variant
+      # First add variant information to elite configurations
+      elite_configurations_with_variants <- add_variant_information(elite_configurations, scenario)
+      print_winning_variant_function(elite_configurations_with_variants, scenario)
+    }
   }
   testing_fromlog(logFile = scenario$logFile)
   invisible(elite_configurations)
@@ -1032,6 +1114,25 @@ irace_run <- function(scenario)
             "# currentBudget: ", currentBudget, "\n",
             "# nbConfigurations: ", nbConfigurations,
             verbose = FALSE)
+    
+    # Code Evolution: Switch to evolution-aware target runner if variants are ready
+    if (is_code_evolution_enabled(scenario) && 
+        !is.null(scenario$codeEvolutionVariantsReady) && 
+        scenario$codeEvolutionVariantsReady) {
+      
+      # Switch to evolution-aware target runner
+      #evo_target_runner <- system.file("templates", "target-runner-evolution.tmpl", 
+      #                                 package = "irace", mustWork = TRUE)
+      
+      # Auto-fix permissions if needed (after reinstallation)
+      #if (file.access(evo_target_runner, 1) != 0) {
+      #  irace_note("irace-evo: Template not executable, fixing permissions...")
+      #  Sys.chmod(evo_target_runner, mode = "0755", use_umask = FALSE)
+      #}
+      
+      #scenario$targetRunner <- evo_target_runner
+      #irace_note("irace-evo: Using evolution-aware target runner for iteration ", indexIteration)
+    }
 
     iraceResults$softRestart[indexIteration] <- FALSE
     # Sample for the first time.
@@ -1150,6 +1251,32 @@ irace_run <- function(scenario)
         update = TRUE)
     }
 
+    # Code Evolution: Generate variants BEFORE the race for immediate use
+    if (is_code_evolution_enabled(scenario)) {
+      # For first iteration, use initial configurations as "elites"
+      # For subsequent iterations, use actual elite configurations from previous iteration
+      current_elites <- if (indexIteration == 1) {
+        # Use the configurations we're about to race as pseudo-elites
+        raceConfigurations[seq_len(min(5, nrow(raceConfigurations))), , drop = FALSE]
+      } else {
+        elite_configurations  # From previous iteration
+      }
+      
+      iteration_stats <- list(
+        iteration = indexIteration,
+        experiments_used = experimentsUsed,  # Use current experiments count
+        elite_configurations = current_elites
+      )
+      
+      budget_info <- list(
+        remaining = remainingBudget,
+        current = currentBudget
+      )
+      
+      # Generate variants for this iteration BEFORE the race
+      scenario <- evolve_code_iteration(current_elites, iteration_stats, scenario, budget_info)
+    }
+
     if (debugLevel >= 1L) irace_note("Launch race\n")
     raceResults <- elitist_race (race_state, scenario = scenario,
                                  configurations = raceConfigurations,
@@ -1184,7 +1311,12 @@ irace_run <- function(scenario)
       irace_note("Results for the race of iteration ", indexIteration,
                  " (from best to worst, according to the ",
                  test.type.order.str(scenario$testType), "):\n")
-      configurations_print(raceResults$configurations, metadata = TRUE)
+      # Use variant-aware printing if in code evolution mode
+      if (isTRUE(scenario$codeEvolution) && !is.null(scenario$codeEvolutionVariantMap)) {
+        configurations_print_with_variants(raceResults$configurations, scenario, metadata = TRUE)
+      } else {
+        configurations_print(raceResults$configurations, metadata = TRUE)
+      }
     }
 
     if (debugLevel >= 1L) irace_note("Extracting elites\n")
@@ -1193,9 +1325,21 @@ irace_run <- function(scenario)
     irace_note("Elite configurations (first number is the configuration ID;",
                " listed from best to worst according to the ",
                test.type.order.str(scenario$testType), "):\n")
-    if (!quiet) configurations_print(elite_configurations, metadata = debugLevel >= 1L)
+    # Use variant-aware printing for elites if in code evolution mode
+    if (!quiet) {
+      if (isTRUE(scenario$codeEvolution) && !is.null(scenario$codeEvolutionVariantMap)) {
+        configurations_print_with_variants(elite_configurations, scenario, metadata = debugLevel >= 1L)
+        # Show the best heuristic code after printing elites
+        show_best_heuristic(elite_configurations, scenario)
+      } else {
+        configurations_print(elite_configurations, metadata = debugLevel >= 1L)
+      }
+    }
     iraceResults$iterationElites[indexIteration] <- elite_configurations[[".ID."]][1L]
     iraceResults$allElites[[indexIteration]] <- elite_configurations[[".ID."]]
+
+    # Code Evolution: Variants were already generated BEFORE the race
+    # No need to generate variants again at the end of iteration
 
     if (firstRace) {
       if (debugLevel >= 1L) irace_note("Initialise model\n")
@@ -1208,7 +1352,12 @@ irace_run <- function(scenario)
       irace_note("End of iteration ", indexIteration, "\n")
       if (debugLevel >= 3L) {
         irace_note("All configurations (sampling order):\n")
-        configurations_print(allConfigurations, metadata = TRUE)
+        # Use variant-aware printing if in code evolution mode
+        if (isTRUE(scenario$codeEvolution) && !is.null(scenario$codeEvolutionVariantMap)) {
+          configurations_print_with_variants(allConfigurations, scenario, metadata = TRUE)
+        } else {
+          configurations_print(allConfigurations, metadata = TRUE)
+        }
         irace_note("Memory used in irace():\n")
         race_state$print_mem_used()
       }

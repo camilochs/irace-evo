@@ -1,0 +1,39 @@
+###################################################### -*- mode: r -*- #####
+## Scenario setup for Iterated Race (irace) - Economic Configuration
+############################################################################
+
+## File that contains the description of the parameters of the target
+## algorithm.
+parameterFile = "./parameters.txt"
+
+## Directory where training instances are located
+trainInstancesDir = "./tuning_instances/"
+
+## File that contains a list of training instances
+trainInstancesFile = "instances-list.txt"
+
+## Script called for each configuration 
+targetRunner = "./target-runner"
+
+## Code Evolution Configuration
+codeEvolution = "TRUE"
+codeEvolutionConfig = "./code-evolution.json"
+codeEvolutionVariants = 3
+
+## BUDGET OPTIMIZATION - Reduce minimum required evaluations
+maxExperiments = 300      # Aumentado para evaluaciones más robustas
+mu = 3                    # Menos configuraciones por iteración (default: 5)
+#nbIterations = 3          # Forzar menos iteraciones
+#minNbSurvival = 1         # Permitir un solo superviviente (evita paradas prematuras)
+firstTest = 4             # Evaluación inicial más robusta (default: 5)
+eachTest = 1              # Mantener test entre eliminaciones
+confidence = 0.85         # Confianza menos estricta para reducir eliminaciones prematuras
+
+## Paralelización
+parallel = 12
+
+## Debug reducido para menos overhead
+debugLevel = 3
+
+## Other settings
+boundDigits = 2

@@ -1,0 +1,23 @@
+=== variant_0_iter5_elite Information ===
+Strategy: elite_preserved
+Parent: iter4
+Executable: not_set
+Compilation Success: unknown
+Code Length: 19865 characters
+Fingerprint: ca26f59a
+
+=== Generated Code Preview (First 500 chars) ===
+/***************************************************************************
+                         brkga.cpp  -  description
+                             -------------------
+    begin                : Thu Sep 26 2024
+    copyright            : (C) 2024 by Christian Blum
+    email                : christian.blum@iiia.csic.es
+ ***************************************************************************/
+
+
+/***************************************************************************
+ *            
+... (truncated)
+
+

@@ -33,6 +33,7 @@ ordered_sections <- c("General options",
                       "Tuning budget",
                       "Statistical test",
                       "Adaptive capping",
+                      "Code Evolution",
                       "Recovery",
                       "Testing")
 

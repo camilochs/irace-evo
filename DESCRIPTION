@@ -17,7 +17,11 @@ Authors@R: c(person("Manuel", "López-Ibáñez", role = c("aut", "cre"),
              person("Mauro", "Birattari", role = "aut"),
              person("Eric", "Yuan", role = "ctb"),
              person("Prasanna", "Balaprakash", role = "ctb"),
-             person("Nguyen", "Dang", role = "ctb", email = "nttd@st-andrews.ac.uk"))
+             person("Nguyen", "Dang", role = "ctb", email = "nttd@st-andrews.ac.uk"),
+             person("Camilo", "Chacón Sartori", role = "aut",
+                    comment = "irace-evo: LLM-based code-evolution extension"),
+             person("Christian", "Blum", role = "aut",
+                    comment = "irace-evo: LLM-based code-evolution extension"))
 Depends: R (>= 4.0.0)
 Imports:
         R6,
@@ -35,6 +39,8 @@ Suggests:
     highr,
     knitr,
     parallel,
+    reticulate (>= 1.20),
+    jsonlite,
     testthat (>= 3.1.8)
 VignetteBuilder: knitr
 License: GPL (>= 2)

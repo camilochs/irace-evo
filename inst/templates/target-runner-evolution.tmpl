@@ -1,0 +1,203 @@
+#!/bin/bash
+###############################################################################
+# irace-evo Target Runner Template
+# 
+# This script is executed for each configuration in code evolution mode.
+# It selects the appropriate executable based on the configuration ID and 
+# runs it with the given parameters.
+#
+# This script is run in the execution directory (execDir, --exec-dir).
+# Supports both local and SLURM distributed execution.
+#
+# PARAMETERS:
+# $1 is the candidate configuration number  
+# $2 is the instance ID
+# $3 is the seed
+# $4 is the instance name
+# The rest ($* after `shift 4') are parameters to the run
+#
+# RETURN VALUE:
+# This script should print one numerical value: the cost that must be minimized.
+# Exit with 0 if no error, with 1 in case of error
+###############################################################################
+
+error() {
+    echo "`TZ=UTC date`: $0: irace-evo error: $@" >&2
+    exit 1
+}
+
+debug() {
+    if [ "$IRACE_EVO_DEBUG" = "1" ]; then
+        echo "`TZ=UTC date`: $0: irace-evo debug: $@" >&2
+    fi
+}
+
+# Parse arguments given by irace
+CONFIG_ID=$1
+INSTANCE_ID=$2
+SEED=$3
+INSTANCE=$4
+shift 4 || error "Not enough parameters"
+CONFIG_PARAMS=$*
+
+debug "Configuration ID: $CONFIG_ID, Instance: $INSTANCE, Seed: $SEED"
+
+# SLURM-specific setup
+setup_slurm_node() {
+    if [ -n "$SLURM_JOB_ID" ]; then
+        debug "SLURM job detected: $SLURM_JOB_ID on node $SLURMD_NODENAME"
+        
+        # Check for SLURM distribution script
+        SLURM_SETUP_SCRIPT=".irace_evo_slurm/distribute_variants.sh"
+        if [ -f "$SLURM_SETUP_SCRIPT" ]; then
+            debug "Running SLURM distribution script"
+            source "$SLURM_SETUP_SCRIPT"
+        else
+            debug "No SLURM distribution script found, assuming shared filesystem"
+        fi
+    fi
+}
+
+# Setup SLURM node if needed
+setup_slurm_node
+
+# Check if we're in code evolution mode by looking for variant mapping
+VARIANT_MAP_FILE=".irace_evo_variants.csv"
+
+# Try SLURM-specific location first
+if [ -n "$SLURM_JOB_ID" ] && [ -f ".irace_evo_slurm/.irace_evo_variants.csv" ]; then
+    VARIANT_MAP_FILE=".irace_evo_slurm/.irace_evo_variants.csv"
+    debug "Using SLURM variant mapping file: $VARIANT_MAP_FILE"
+fi
+
+if [ ! -f "$VARIANT_MAP_FILE" ]; then
+    error "Code evolution variant mapping file not found: $VARIANT_MAP_FILE"
+fi
+
+debug "Found variant mapping file: $VARIANT_MAP_FILE"
+
+# Extract executable path for this configuration
+# CSV format: config_id,executable_path,variant_id
+EXE_PATH=$(awk -F',' -v config="$CONFIG_ID" '$1 == config {print $2; exit}' "$VARIANT_MAP_FILE")
+
+if [ -z "$EXE_PATH" ]; then
+    error "No executable found for configuration ID $CONFIG_ID"
+fi
+
+# Remove quotes if present
+EXE_PATH=$(echo "$EXE_PATH" | sed 's/^"\(.*\)"$/\1/')
+
+debug "Using executable: $EXE_PATH"
+
+# Verify executable exists and is runnable
+if [ ! -f "$EXE_PATH" ]; then
+    error "Executable not found: $EXE_PATH"
+fi
+
+if [ ! -x "$EXE_PATH" ]; then
+    error "Executable is not executable: $EXE_PATH"
+fi
+
+# Set up execution parameters
+# Standard irace parameters that most target algorithms expect
+EXE_PARAMS="--instance $INSTANCE --seed $SEED $CONFIG_PARAMS"
+
+# Alternative parameter format (uncomment if your algorithm expects different format)
+# EXE_PARAMS="-i $INSTANCE -s $SEED $CONFIG_PARAMS"
+
+debug "Execution command: $EXE_PATH $EXE_PARAMS"
+
+# Create output files for this run
+STDOUT=c${CONFIG_ID}-${INSTANCE_ID}-${SEED}.stdout
+STDERR=c${CONFIG_ID}-${INSTANCE_ID}-${SEED}.stderr
+
+# Execute the algorithm
+# Timeout can be set via environment variable
+TIMEOUT=${IRACE_EVO_TIMEOUT:-300}
+
+timeout $TIMEOUT $EXE_PATH $EXE_PARAMS 1> $STDOUT 2> $STDERR
+EXIT_CODE=$?
+
+# Check for timeout
+if [ $EXIT_CODE -eq 124 ]; then
+    echo "999999"  # Return large penalty for timeout
+    debug "Algorithm timed out after $TIMEOUT seconds"
+    rm -f "$STDOUT" "$STDERR"
+    exit 0
+fi
+
+# Check for other execution errors
+if [ $EXIT_CODE -ne 0 ]; then
+    error "Algorithm execution failed with exit code $EXIT_CODE. Check $STDERR for details."
+fi
+
+# Check if output file exists
+if [ ! -s "$STDOUT" ]; then
+    error "No output produced by algorithm. Output file $STDOUT is missing or empty."
+fi
+
+# Extract cost from output
+# This assumes the cost is the first number on the last line of output
+# Modify this section based on your algorithm's output format
+COST=$(tail -n 1 "$STDOUT" | grep -o -E '^[[:space:]]*[+-]?[0-9]*\.?[0-9]+([eE][+-]?[0-9]+)?' | head -n 1)
+
+if [ -z "$COST" ]; then
+    # Alternative: try to extract any number from the output
+    COST=$(grep -o -E '[+-]?[0-9]*\.?[0-9]+([eE][+-]?[0-9]+)?' "$STDOUT" | tail -n 1)
+fi
+
+if [ -z "$COST" ]; then
+    error "Could not extract cost from algorithm output. Check $STDOUT"
+fi
+
+# Validate that COST is a valid number
+if ! echo "$COST" | grep -q -E '^[+-]?[0-9]*\.?[0-9]+([eE][+-]?[0-9]+)?$'; then
+    error "Extracted cost '$COST' is not a valid number"
+fi
+
+debug "Extracted cost: $COST"
+
+# Output the cost (this is what irace will use)
+echo "$COST"
+
+# Clean up temporary files (comment out for debugging)
+rm -f "$STDOUT" "$STDERR"
+
+exit 0
+
+###############################################################################
+# CONFIGURATION NOTES:
+#
+# 1. Output Format:
+#    Your algorithm should output the objective value (cost to minimize) 
+#    in a format that this script can parse. By default, it expects the 
+#    cost as the first number on the last line.
+#
+# 2. Timeout Handling:
+#    Set IRACE_EVO_TIMEOUT environment variable to change timeout (seconds).
+#    Default is 300 seconds (5 minutes).
+#
+# 3. Debug Mode:
+#    Set IRACE_EVO_DEBUG=1 to enable debug output.
+#
+# 4. Parameter Format:
+#    Modify EXE_PARAMS if your algorithm expects different parameter format.
+#    Common formats:
+#      --instance $INSTANCE --seed $SEED $CONFIG_PARAMS
+#      -i $INSTANCE -s $SEED $CONFIG_PARAMS  
+#      $INSTANCE $SEED $CONFIG_PARAMS
+#
+# 5. Error Handling:
+#    This script will exit with error code 1 if:
+#    - Required files are missing
+#    - Algorithm execution fails
+#    - Cannot extract valid cost from output
+#
+# 6. Cost Extraction:
+#    Modify the COST extraction logic based on your algorithm's output format.
+#    Examples:
+#    - Last line, first number: tail -n 1 | grep -o -E '^[0-9.]+'
+#    - Line starting with "Cost:": grep "^Cost:" | cut -d' ' -f2
+#    - JSON format: grep '"cost"' | cut -d':' -f2 | tr -d ' ,'
+#
+###############################################################################

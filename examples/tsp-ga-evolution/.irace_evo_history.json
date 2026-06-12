@@ -1,0 +1,47 @@
+[
+  {
+    "iteration": 1,
+    "total_variants_generated": 3,
+    "llm_calls": 3,
+    "successful_strategies": ["innovate_heuristic_design", "innovate_heuristic_design", "innovate_heuristic_design"],
+    "generation_timestamp": 1757201011.8648
+  },
+  {
+    "iteration": 2,
+    "total_variants_generated": 3,
+    "llm_calls": 2,
+    "successful_strategies": ["elite_preserved", "innovate_heuristic_design", "innovate_heuristic_design"],
+    "generation_timestamp": 1757202254.7139
+  },
+  {
+    "iteration": 3,
+    "total_variants_generated": 3,
+    "llm_calls": 2,
+    "successful_strategies": ["elite_preserved", "innovate_heuristic_design", "innovate_heuristic_design"],
+    "generation_timestamp": 1757203263.1892
+  },
+  {
+    "iteration": 4,
+    "total_variants_generated": 3,
+    "llm_calls": 2,
+    "successful_strategies": ["elite_preserved", "innovate_heuristic_design", "innovate_heuristic_design"],
+    "generation_timestamp": 1757204501.8783
+  },
+  {
+    "iteration": 5,
+    "total_variants_generated": 3,
+    "llm_calls": 2,
+    "successful_strategies": ["elite_preserved", "innovate_heuristic_design", "innovate_heuristic_design"],
+    "generation_timestamp": 1757205981.5386
+  },
+  {
+    "iteration": 6,
+    "total_variants_generated": 3,
+    "llm_calls": 2,
+    "successful_strategies": ["elite_preserved", "innovate_heuristic_design", "innovate_heuristic_design"],
+    "generation_timestamp": 1757207572.4494,
+    "best_performance": 42,
+    "best_configuration_id": 4,
+    "winning_strategy": "variant_1_iter3"
+  }
+]

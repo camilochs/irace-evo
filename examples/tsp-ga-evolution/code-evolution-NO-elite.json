@@ -1,0 +1,156 @@
+{
+  "_comment": "irace-evo Configuration WITHOUT Elite Preservation (for experimental comparison)",
+  "_version": "1.0",
+  
+  "problem_context": {
+    "problem_name": "Longest Runs Subsequences (LRS)",
+    "problem_description": "Find the maximum subset of runs from a given sequence such that the selected runs form the longest possible total length while satisfying subsequence constraints. This is a combinatorial optimization problem focused on selecting optimal runs from sequence data.",
+    "algorithm_approach": "Biased Random-Key Genetic Algorithm (BRKGA) with chromosome decoding for run selection",
+    "optimization_objective": "Maximize total length of selected runs while maintaining subsequence properties",
+    "key_challenges": [
+      "Efficient run selection from random keys",
+      "Maintaining subsequence constraints during decoding",
+      "Balancing between run length and number of selected runs",
+      "Handling overlapping or conflicting run candidates",
+      "Avoiding greedy selections that miss optimal combinations"
+    ],
+    "performance_considerations": "The decode_solution function is called millions of times during evolution, so algorithmic efficiency is critical. Focus on reducing complexity from O(n²) operations where possible, especially in run conflict detection and subsequence validation.",
+    "domain_knowledge": "LRS-specific heuristics include dynamic programming for optimal run selection, conflict resolution strategies for overlapping runs, and greedy approaches that prioritize high-value runs while maintaining feasibility constraints."
+  },
+  
+  "language_config": {
+    "language": "cpp",
+    "comment": "C++ implementation of BRKGA for Longest Runs Subsequences problem with evolvable heuristics"
+  },
+  
+  "source_config": {
+    "source_file": "./src/brkga.cpp",
+    "function_name": "order_chromosome",
+    "function_signature": "vector<pair<int, double>> order_chromosome(const vector<double>& chromosome) ",
+    "includes": [
+      "<vector>",
+      "<algorithm>", 
+      "<random>",
+      "<iostream>",
+      "<fstream>",
+      "<cmath>",
+      "<set>"
+    ],
+    "dependencies": [],
+    "comment": "Returns a vector of pairs (index, value) sorted by descending value"
+  },
+  
+  "build_config": {
+    "cpp": {
+      "compiler": "g++",
+      "flags": ["-O3", "-std=c++17", "-Wall"],
+      "include_paths": ["./src"],
+      "library_paths": [],
+      "libraries": [],
+      "output_dir": "./bin",
+      "compile_timeout": 30
+    }
+  },
+  
+  "llm_config": {
+    "api_provider": "openai",
+    "model": "gpt-4.1",
+    "api_key": "",
+    "max_retries": 3,
+    "temperature": 0.1,
+    "temperature_range": {
+      "enabled": true,
+      "min": 0.3,
+      "max": 0.6
+    },
+    "use_dynamic_prompting": true,
+    "elite_preservation": false,
+    "max_tokens": 2000,
+    "timeout": 60,
+    "custom_prompt_template": "",
+    "comment": "EXPERIMENTAL CONFIG: elite_preservation=false to test standard evolution without preservation."
+  },
+  
+  "evolution_config": {
+    "initial_variants": 2,
+    "max_variants_per_iteration": 6,
+    "survival_rate": 0.6,
+    "max_compilation_failures": 3,
+    "diversity_threshold": 0.3,
+    "intelligent_error_correction": true,
+    "max_error_correction_attempts": 2,
+    
+    "available_strategies": [
+      "innovate_heuristic_design"
+    ],
+    
+    "strategy_selection": "weighted",
+    "strategy_weights": {
+      "innovate_heuristic_design": 1
+    },
+    
+    "custom_strategies": [
+      {
+        "name": "tsp_specific_optimization",
+        "description": "TSP-specific heuristic improvements for genetic algorithms",
+        "prompt_context": "Focus on TSP problem structure: tour construction, crossover operators, local search moves, and exploitation of distance matrix properties",
+        "examples": [
+          "implement edge recombination crossover",
+          "add 2-opt or 3-opt local search",
+          "use nearest neighbor bias in crossover",
+          "implement order-based mutations",
+          "add tour improvement heuristics",
+          "exploit symmetric distance matrix"
+        ]
+      }
+    ],
+    
+    "comment": "Custom TSP strategy focuses on domain-specific improvements for traveling salesman problems"
+  },
+  
+  "validation_config": {
+    "syntax_check": true,
+    "basic_functionality_test": true,
+    "test_arguments": ["--instance", "./instances/len_100_sigma2_0.txt" ],
+    "test_timeout": 30,
+    "expected_output_pattern": "^[0-9]+(\\.[0-9]+)?$",
+    "unit_tests": [],
+    "performance_baseline": {
+      "enabled": false,
+      "baseline_executable": "./bin/brkga",
+      "max_performance_degradation": 1.5
+    },
+    "comment": "Validation runs quick test with len_100_sigma2_0 instance to ensure generated code works"
+  },
+  
+  "cluster_config": {
+    "enabled": false,
+    "type": "slurm",
+    "shared_filesystem": true,
+    "distribute_variants": true,
+    "node_local_storage": "${SLURM_TMPDIR:-/tmp}",
+    "sync_method": "copy",
+    "cleanup_on_exit": true,
+    "comment": "Enable for SLURM cluster execution"
+  },
+  
+  "fallback_config": {
+    "use_previous_working": true,
+    "keep_backup_variants": 3,
+    "emergency_revert": true,
+    "min_successful_variants": 2,
+    "conservative_fallback": true,
+    "comment": "Fallback ensures irace continues even if some code generation fails"
+  },
+  
+  "logging_config": {
+    "level": "INFO",
+    "log_file": "./logs/irace-evo.log",
+    "log_variants": true,
+    "log_compilation_errors": true,
+    "log_performance_stats": true,
+    "log_llm_interactions": true,
+    "llm_log_file": "./logs/irace-evo-llm.log",
+    "comment": "Set log_llm_interactions=true to see detailed LLM prompts and responses"
+  }
+}

@@ -277,6 +277,19 @@ The value of \parameter{firstTest} must be a multiple of \parameter{eachTest}.
 
 \end{description}
 
+\subsection[Code Evolution]{Code Evolution}
+\begin{description}
+ \defparameter{codeEvolution}{code-evolution}{FALSE}%
+ Enable automatic code evolution using Large Language Models (LLMs). When enabled, irace-evo will generate and evolve algorithm variants across iterations, combining parameter tuning with code generation.
+
+ \defparameter{codeEvolutionConfig}{code-evolution-config}{./code-evolution.json}%
+ Path to the JSON configuration file that specifies source files to evolve, compilation settings, LLM parameters, and evolution strategies.
+
+ \defparameter{codeEvolutionVariants}{code-evolution-variants}{5}%
+ Number of different code variants to generate using the LLM at each iteration. Higher values provide more diversity but require more computational budget.
+
+\end{description}
+
 \subsection[Recovery]{Recovery}
 \begin{description}
  \defparameter{recoveryFile}{recovery-file}{}%

@@ -245,6 +245,17 @@
 ## at each iteration.
 # mu = 5
 
+## Enable automatic code evolution using LLMs. When enabled, irace-evo will
+## generate and evolve algorithm variants.
+# codeEvolution = "FALSE"
+
+## Path to the code evolution configuration file containing source files,
+## build settings, and LLM configuration.
+# codeEvolutionConfig = "./code-evolution.json"
+
+## Number of code variants to generate and evaluate per iteration.
+# codeEvolutionVariants = 5
+
 ## Confidence level for the elimination test.
 # confidence = 0.95
 

@@ -1,0 +1,28 @@
+# Mini test scenario for LLM testing
+parameterFile = "./parameters.txt"
+execDir = "./"
+logFile = "./irace-evo-mini.Rdata"
+
+trainInstancesDir = "./instances/"
+targetRunner = "./target-runner"
+maxExperiments = 12        # Very small for quick test
+parallel = 2
+
+confidence = 0.95
+firstTest = 2
+eachTest = 1
+
+## Code Evolution Settings (irace-evo)
+codeEvolution=TRUE
+codeEvolutionConfig = "./code-evolution.json"
+codeEvolutionVariants = 2    # Small number for testing
+
+elitist = 1
+elitistNewInstances = 1
+elitistLimit = 2
+
+quiet = 0
+debugLevel = 1
+
+# Force at least 2 iterations to test LLM
+nbIterations = 2

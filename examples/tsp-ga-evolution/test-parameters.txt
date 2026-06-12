@@ -1,0 +1,6 @@
+population_size                       "--population-size " i,log (50, 200)
+crossover_rate                        "--crossover-rate " r (0.1, 0.95)
+mutation_rate                         "--mutation-rate " r (0.005, 0.1)
+tournament_size                       "--tournament-size " i (2, 8)
+local_search                          "--local-search " c (true, false)
+generations                           "--generations " i,log (100, 1000)

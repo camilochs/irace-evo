@@ -1,0 +1,318 @@
+#!/bin/bash
+###############################################################################
+# Target Runner for irace-evo with SLURM Support
+# 
+# This script submits jobs to SLURM for each configuration evaluation.
+# Based on the proven TSP-GA example but adapted for distributed execution.
+#
+# OPTIMIZATION MODE:
+# Set MAXIMIZE=1 as environment variable for maximization problems
+# Default is minimization (MAXIMIZE=0 or unset)
+#
+# SLURM CONFIGURATION:
+# Set these environment variables to customize SLURM submission:
+# - IRACE_SLURM_PARTITION: partition name (default: defq)
+# - IRACE_SLURM_TIME: time limit (default: 0-1:00:00)
+# - IRACE_SLURM_CPUS: CPUs per task (default: 1)
+# - IRACE_SLURM_MEM: memory per CPU in MB (default: 8000)
+# - IRACE_SLURM_MODULES: modules to load (default: none)
+#
+# PARAMETERS:
+# $1 is the candidate configuration number
+# $2 is the instance ID  
+# $3 is the seed
+# $4 is the instance name
+# The rest ($* after `shift 4') are parameters to the run
+#
+# RETURN VALUE:
+# For batch mode: prints the SLURM job ID
+# For standard mode: prints the cost to be minimized/maximized
+# Exit with 0 if no error, with 1 in case of error
+###############################################################################
+
+error() {
+    echo "`TZ=UTC date`: $0: error: $@" >&2
+    cat "$tmpfile" 2>/dev/null
+    rm -f "$tmpfile"
+    exit 1
+}
+
+debug() {
+    if [ "$DEBUG" = "1" ]; then
+        echo "`TZ=UTC date`: $0: debug: $@" >&2
+    fi
+}
+
+# Create temporary file for sbatch output
+tmpfile=$(mktemp)
+
+# Parse arguments given by irace
+CONFIG_ID=$1
+INSTANCE_ID=$2
+SEED=$3
+INSTANCE=$4
+shift 4 || error "Not enough parameters"
+CONFIG_PARAMS=$*
+
+# Check optimization mode
+MAXIMIZE=${MAXIMIZE:-0}  # Default to minimization if not set
+
+debug "SLURM Target Runner"
+debug "Configuration ID: $CONFIG_ID, Instance: $INSTANCE, Seed: $SEED"
+debug "Parameters: $CONFIG_PARAMS"
+debug "Optimization mode: $([ "$MAXIMIZE" = "1" ] && echo "MAXIMIZATION" || echo "MINIMIZATION")"
+
+# SLURM configuration with defaults
+PARTITION=${IRACE_SLURM_PARTITION:-defq}
+TIME_LIMIT=${IRACE_SLURM_TIME:-0-1:00:00}
+CPUS_PER_TASK=${IRACE_SLURM_CPUS:-1}
+MEM_PER_CPU=${IRACE_SLURM_MEM:-8000}
+MODULES=${IRACE_SLURM_MODULES:-""}
+
+debug "SLURM Config: partition=$PARTITION, time=$TIME_LIMIT, cpus=$CPUS_PER_TASK, mem=$MEM_PER_CPU"
+
+# Check if instance file exists
+if [ ! -f "$INSTANCE" ]; then
+    error "Instance file not found: $INSTANCE"
+fi
+
+# Determine which executable to use (similar logic to TSP example)
+VARIANT_MAP_FILE=".irace_evo_variants.csv"
+EXECUTABLE=""
+
+if [ -f "$VARIANT_MAP_FILE" ] && [ -s "$VARIANT_MAP_FILE" ]; then
+    # irace-evo mode: use variant executable based on configuration ID
+    debug "irace-evo mode detected: using variant mapping"
+    
+    # Safe awk call with error handling
+    EXE_PATH=$(awk -F',' -v config="$CONFIG_ID" '$1 == config {print $2; exit}' "$VARIANT_MAP_FILE" 2>/dev/null || echo "")
+    
+    if [ -z "$EXE_PATH" ]; then
+        debug "No direct mapping for config $CONFIG_ID, using round-robin assignment"
+        # Safe awk call to count variants
+        TOTAL_VARIANTS=$(awk 'END {print NR-1}' "$VARIANT_MAP_FILE" 2>/dev/null || echo "0")
+        
+        if [ "$TOTAL_VARIANTS" -le 0 ] || [ -z "$TOTAL_VARIANTS" ]; then
+            debug "No valid variants found, falling back to standard executable"
+            EXECUTABLE="./bin/algorithm"  # Default executable name
+        else
+            VARIANT_INDEX=$(( (CONFIG_ID - 1) % TOTAL_VARIANTS + 1 ))
+            EXE_PATH=$(awk -F',' -v variant="$VARIANT_INDEX" 'NR == variant + 1 {print $2; exit}' "$VARIANT_MAP_FILE" 2>/dev/null || echo "")
+            debug "Assigned config $CONFIG_ID to variant $VARIANT_INDEX: $EXE_PATH"
+        fi
+    fi
+    
+    # Only process EXE_PATH if it's not empty
+    if [ -n "$EXE_PATH" ]; then
+        EXECUTABLE=$(echo "$EXE_PATH" | sed 's/^"\(.*\)"$/\1/')
+        debug "Using evolved variant: $EXECUTABLE"
+    fi
+    
+else
+    # Standard irace mode OR first iteration of irace-evo
+    debug "Standard irace mode: using original algorithm"
+    
+    if [ -f "./code-evolution.json" ]; then
+        # Extract source file path from JSON and derive executable name
+        SOURCE_FILE=$(grep -o '"source_file"[[:space:]]*:[[:space:]]*"[^"]*"' ./code-evolution.json | cut -d'"' -f4)
+        if [ -n "$SOURCE_FILE" ]; then
+            BASE_NAME=$(basename "$SOURCE_FILE" .cpp)
+            EXECUTABLE="./bin/$BASE_NAME"
+            debug "Found source file in config: $SOURCE_FILE -> $EXECUTABLE"
+        else
+            EXECUTABLE="./bin/algorithm"  # Fallback
+        fi
+    else
+        EXECUTABLE="./bin/algorithm"  # Default fallback
+    fi
+fi
+
+if [ -z "$EXECUTABLE" ]; then
+    error "Could not determine executable to use"
+fi
+
+debug "Final executable: $EXECUTABLE"
+
+# Create output file names
+STDOUT=c${CONFIG_ID}-${INSTANCE_ID}-${SEED}.stdout
+STDERR=c${CONFIG_ID}-${INSTANCE_ID}-${SEED}.stderr
+
+# Build the execution command
+# Customize this based on your algorithm's parameter format
+EXE_PARAMS="-i $INSTANCE --seed $SEED $CONFIG_PARAMS -t 30 -tuning"
+
+# Alternative parameter formats (uncomment as needed):
+# EXE_PARAMS="--instance $INSTANCE --seed $SEED $CONFIG_PARAMS"
+# EXE_PARAMS="$INSTANCE $SEED $CONFIG_PARAMS"
+
+debug "Execution command: $EXECUTABLE $EXE_PARAMS"
+
+# Submit SLURM job
+sbatch 1> "$tmpfile" <<EOF
+#!/bin/bash
+#SBATCH --job-name=irace-evo-$PPID-$CONFIG_ID-$INSTANCE_ID-$SEED
+#SBATCH --output=/dev/null
+#SBATCH --error=/dev/null
+#SBATCH --time=$TIME_LIMIT
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=$CPUS_PER_TASK
+#SBATCH --mem-per-cpu=$MEM_PER_CPU
+#SBATCH --partition=$PARTITION
+
+# Load modules if specified
+if [ -n "$MODULES" ]; then
+    module load $MODULES
+fi
+
+# Function to return penalty and clean up
+return_penalty() {
+    local penalty_value=\$1
+    local reason=\$2
+    
+    if [ "$MAXIMIZE" = "1" ]; then
+        penalty_value="-999999"
+    else
+        penalty_value="999999"
+    fi
+    
+    echo "\$penalty_value" > "$STDOUT"
+    echo "SLURM penalty: \$reason" > "$STDERR"
+    exit 0
+}
+
+# Create temporary directory for execution
+TMP=\$(mktemp -d)
+cd \$TMP || exit 1
+
+# Copy necessary files to temporary directory
+cp -r \$SLURM_SUBMIT_DIR/* . 2>/dev/null || true
+cp \$SLURM_SUBMIT_DIR/$INSTANCE . 2>/dev/null || cp \$SLURM_SUBMIT_DIR/$INSTANCE ./\$(basename $INSTANCE) 2>/dev/null || true
+
+# Verify executable exists
+if [ ! -f "$EXECUTABLE" ]; then
+    return_penalty "" "Executable not found: $EXECUTABLE"
+fi
+
+if [ ! -x "$EXECUTABLE" ]; then
+    return_penalty "" "Executable is not executable: $EXECUTABLE"
+fi
+
+# Execute the algorithm with timeout
+timeout 3600 $EXECUTABLE $EXE_PARAMS > temp_stdout.txt 2> temp_stderr.txt
+RETVAL=\$?
+
+# Check for timeout
+if [ \$RETVAL -eq 124 ]; then
+    return_penalty "" "Algorithm timed out"
+fi
+
+# Check for segmentation fault
+if [ \$RETVAL -eq 11 ] || [ \$RETVAL -eq 139 ] || [ \$RETVAL -eq 134 ] || grep -q "Segmentation fault" temp_stderr.txt 2>/dev/null; then
+    return_penalty "" "Algorithm crashed (segmentation fault)"
+fi
+
+# Check for other execution errors
+if [ \$RETVAL -ne 0 ]; then
+    return_penalty "" "Algorithm execution failed with return code \$RETVAL"
+fi
+
+# Check if we have output
+if [ ! -s temp_stdout.txt ]; then
+    return_penalty "" "No output produced by algorithm"
+fi
+
+# Extract cost from output
+COST=\$(head -n 1 temp_stdout.txt | grep -o -E '^[[:space:]]*-?[0-9]+(\.[0-9]+)?')
+
+if [ -z "\$COST" ]; then
+    return_penalty "" "Could not extract valid cost from output"
+fi
+
+# Additional validation
+if ! echo "\$COST" | grep -qE '^-?[0-9]+(\.[0-9]+)?\$'; then
+    return_penalty "" "Invalid cost format: \$COST"
+fi
+
+# Check for unreasonably large costs
+COST_ABS=\$(echo "\$COST" | sed 's/^-//')
+if command -v bc >/dev/null 2>&1; then
+    if [ "\$(echo "\$COST_ABS > 1000000" | bc 2>/dev/null || echo 0)" -eq 1 ]; then
+        return_penalty "" "Unreasonably large cost: \$COST"
+    fi
+fi
+
+# Adjust output based on optimization mode
+if [ "$MAXIMIZE" = "1" ]; then
+    if command -v bc >/dev/null 2>&1; then
+        FINAL_COST=\$(echo "scale=10; -1 * \$COST" | bc 2>/dev/null || echo "-\$COST")
+    else
+        FINAL_COST="-\$COST"
+    fi
+else
+    FINAL_COST="\$COST"
+fi
+
+# Write results to output files
+echo "\$FINAL_COST" > temp_stdout.txt
+echo "SLURM execution completed successfully" > temp_stderr.txt
+
+# Copy results back to submit directory
+cp temp_stdout.txt \$SLURM_SUBMIT_DIR/$STDOUT
+cp temp_stderr.txt \$SLURM_SUBMIT_DIR/$STDERR
+
+# Clean up temporary directory
+cd \$SLURM_SUBMIT_DIR
+rm -rf \$TMP
+
+exit 0
+EOF
+
+# Check if sbatch succeeded
+rc=$?
+if [[ $rc == 0 ]]; then
+    # Extract job ID from sbatch output
+    JOBID=$(grep -o -e "Submitted batch job [^ ]\\+" "$tmpfile" | cut -f4 -d ' ')
+    if ! [[ "$JOBID" =~ ^[_-.@0-9A-Za-z]+$ ]]; then
+        error "Cannot parse job ID from sbatch output: $(cat $tmpfile)"
+    fi
+    debug "Successfully submitted SLURM job: $JOBID"
+    echo "$JOBID"
+    rm -f "$tmpfile"
+    exit 0
+else
+    error "sbatch submission failed with return code $rc"
+fi
+
+###############################################################################
+# CONFIGURATION NOTES:
+#
+# 1. Environment Variables:
+#    - MAXIMIZE: Set to 1 for maximization problems (default: 0 for minimization)
+#    - DEBUG: Set to 1 to enable debug output
+#    - IRACE_SLURM_PARTITION: SLURM partition to use (default: defq)
+#    - IRACE_SLURM_TIME: Time limit for jobs (default: 0-1:00:00)
+#    - IRACE_SLURM_CPUS: CPUs per task (default: 1)
+#    - IRACE_SLURM_MEM: Memory per CPU in MB (default: 8000)
+#    - IRACE_SLURM_MODULES: Space-separated list of modules to load
+#
+# 2. Algorithm Integration:
+#    - Modify EXE_PARAMS to match your algorithm's parameter format
+#    - Ensure your algorithm outputs the objective value on the first line
+#    - The script handles both evolved variants and original executables
+#
+# 3. File Structure:
+#    - Executables should be in ./bin/ directory
+#    - Instance files should be accessible from the execution directory
+#    - Variant mapping file: .irace_evo_variants.csv (format: config_id,executable_path,variant_id)
+#
+# 4. Error Handling:
+#    - Timeouts return penalty values (999999 for minimization, -999999 for maximization)
+#    - Segmentation faults and other crashes return penalty values
+#    - Invalid outputs return penalty values
+#
+# 5. Performance:
+#    - Uses temporary directories for each job to avoid file conflicts
+#    - Copies necessary files to compute nodes
+#    - Cleans up temporary files after execution
+#
+###############################################################################
