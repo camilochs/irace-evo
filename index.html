@@ -80,6 +80,8 @@ pre { background: var(--code-bg); color: var(--code-ink); border-radius: 12px; p
 .cycle svg { width: 100%; height: auto; display: block; }
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin: 18px 0 8px; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; box-shadow: var(--shadow); }
+.cards.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 600px) { .cards.two { grid-template-columns: 1fr; } }
 .card b { display: block; margin-bottom: 4px; }
 .card p { margin: 0; color: var(--muted); font-size: 15px; }
 .note { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 12px 16px; border-radius: 0 10px 10px 0; margin: 18px 0; }
@@ -145,7 +147,7 @@ footer div { max-width: 1120px; margin: 0 auto; padding: 28px 24px 48px; }
       <h2>One function, written many ways</h2>
       <p>You have an algorithm that already works, and irace has tuned its parameters. What still holds it back is often one function: the rule that scores a move, orders the candidates or picks the next component. No parameter value changes that rule. It has to be written differently.</p>
       <p>irace-evo asks an LLM to write variants of that one function and races them inside irace. A configuration becomes a pair: parameter values θ and a version A of the function. irace keeps the pairs that win, as it keeps parameter values today.</p>
-      <div class="cards">
+      <div class="cards two">
         <div class="card"><b>One function</b><p>You name it in a JSON file. The rest of your code never changes.</p></div>
         <div class="card"><b>Always from the original</b><p>Every variant is written from your code, never from an earlier variant.</p></div>
         <div class="card"><b>C++, Python, Java</b><p>Each variant is compiled and tested once before it races.</p></div>
