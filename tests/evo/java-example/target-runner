@@ -1,0 +1,25 @@
+#!/bin/bash
+# Runs one configuration on one instance and prints the negative total
+# value (irace minimises). The program is the one irace-evo paired with the
+# configuration in .irace_evo_variants.csv, or the original, compiled once
+# into bin/original.classes.
+set -u
+CONFIG_ID=$1; INSTANCE_ID=$2; SEED=$3; INSTANCE=$4; shift 4
+if [ ! -f bin/original.classes/Knapsack.class ]; then
+    mkdir -p bin
+    while ! mkdir bin/.lock 2>/dev/null; do sleep 1; done
+    [ -f bin/original.classes/Knapsack.class ] || javac -d bin/original.classes src/Knapsack.java
+    rmdir bin/.lock
+fi
+PROGRAM="java -cp bin/original.classes Knapsack"
+if [ -s .irace_evo_variants.csv ]; then
+    MAPPED=$(awk -F',' -v id="$CONFIG_ID" '$1 == id { gsub(/"/, "", $2); print $2; exit }' .irace_evo_variants.csv)
+    if [ -n "$MAPPED" ] && [ "$(basename "$MAPPED")" != Knapsack ]; then
+        [ -x "$MAPPED" ] || { echo 999999; exit 0; }
+        PROGRAM=$MAPPED
+    fi
+fi
+[ -n "${RUN_LOG:-}" ] && echo "$CONFIG_ID,${MAPPED:-original}" >> "$RUN_LOG"
+VALUE=$($PROGRAM -i "$INSTANCE" --seed "$SEED" "$@" 2>/dev/null | head -n 1)
+[[ "$VALUE" =~ ^[0-9]+$ ]] || { echo 999999; exit 0; }
+echo "-$VALUE"

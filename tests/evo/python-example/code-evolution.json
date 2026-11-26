@@ -1,0 +1,37 @@
+{
+  "_comment": "Python end-to-end test of irace-evo (tests/evo/run-python-example.sh): the LLM may rewrite score() in src/knapsack.py.",
+  "problem_context": {
+    "problem_name": "0/1 knapsack",
+    "problem_description": "Choose items, each with a value and a weight, to maximise the total value without exceeding the capacity.",
+    "algorithm_approach": "Randomised greedy with restarts: at each step pick among the best-scored items that still fit.",
+    "optimization_objective": "Maximise the total value",
+    "key_challenges": ["Items that fill the remaining capacity well"],
+    "performance_considerations": "score() is called once per item per step.",
+    "domain_knowledge": "Value density is the classic greedy rule."
+  },
+  "language_config": {"language": "python"},
+  "source_config": {"source_file": "./src/knapsack.py", "function_name": "score"},
+  "build_config": {"python": {"interpreter": "python3", "output_dir": "./bin"}},
+  "llm_config": {
+    "api_provider": "anthropic",
+    "model": "claude-haiku-5-5",
+    "api_key": "",
+    "temperature": 1.0,
+    "top_p": 0.9,
+    "max_tokens": 1000,
+    "max_retries": 3,
+    "timeout": 60
+  },
+  "evolution_config": {
+    "evolution_focus_iteration": 3,
+    "available_strategies": ["innovate_heuristic_design"],
+    "intelligent_error_correction": true,
+    "max_error_correction_attempts": 2
+  },
+  "validation_config": {
+    "basic_functionality_test": true,
+    "test_arguments": ["-i", "./instances/kp60.txt", "--restarts", "2"],
+    "test_timeout": 10,
+    "expected_output_pattern": "^[0-9]+$"
+  }
+}
