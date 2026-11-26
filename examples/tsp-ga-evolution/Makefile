@@ -1,4 +1,4 @@
-# Makefile for TSP-GA irace-evo Example
+# Makefile for the irace-evo example (BRKGA for the Longest Run Subsequence problem)
 
 CXX = g++
 CXXFLAGS = -O3 -std=c++17 -Wall
@@ -7,7 +7,7 @@ BINDIR = bin
 TARGET = $(BINDIR)/brkga
 SOURCE = $(SRCDIR)/brkga.cpp
 
-.PHONY: all clean test install
+.PHONY: all clean test help
 
 all: $(TARGET)
 
@@ -19,33 +19,15 @@ $(TARGET): $(SOURCE) | $(BINDIR)
 
 clean:
 	rm -rf $(BINDIR)
-	rm -f *.stdout *.stderr *.Rdata
-	rm -rf logs/*
+	rm -f *.stdout *.stderr *.Rdata .irace_evo_*
+	rm -rf logs irace-evo-sources irace-evo-llm-logs
 
 test: $(TARGET)
-	./$(TARGET) --instance instances/att48.tsp --generations 300 --population-size 100
-
-install:
-	@echo "Installing dependencies..."
-	@echo "Step 1: Install R packages (excluding irace)"
-	R -e "install.packages(c('reticulate', 'jsonlite'))"
-	@echo "Step 2: Install Python packages"
-	pip install openai anthropic requests
-	@echo "Step 3: Install irace-evo from source"
-	@echo "Run: cd ../../ && R CMD INSTALL ."
-	@echo "Step 4: Set environment variable"
-	@echo "export OPENAI_API_KEY='your-key-here'"
-	@echo ""
-	@echo "Prerequisites:"
-	@echo "  - g++ with C++17 support"
-	@echo "  - R >= 4.0"
-	@echo "  - Python >= 3.7"
-	@echo "  - OpenAI or Anthropic API key"
+	./$(TARGET) -i tuning_instances/len_1000_sigma8_0.txt -t 2
 
 help:
 	@echo "Available targets:"
-	@echo "  all     - Compile the TSP-GA algorithm"
+	@echo "  all     - Compile the original BRKGA (bin/brkga)"
 	@echo "  clean   - Remove compiled files and logs"
 	@echo "  test    - Run a quick test of the algorithm"
-	@echo "  install - Show installation requirements"
 	@echo "  help    - Show this help message"

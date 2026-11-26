@@ -1,0 +1,9 @@
+# Written by a run of irace / irace-evo
+bin/
+logs/
+irace-evo-sources/
+irace-evo-llm-logs/
+.irace_evo_*
+*.Rdata
+*.stdout
+*.stderr
