@@ -1,5 +1,7 @@
 # irace-evo
 
+**Tutorial: https://camilochs.github.io/irace-evo/**
+
 You have an algorithm that already works, and irace has tuned its parameters.
 What still holds it back is one function: the rule that scores a move, orders
 the candidates or picks the next component. No parameter value fixes that
@@ -142,9 +144,31 @@ TIME_LIMIT=5 irace --scenario scenario.txt
 ```
 
 `TIME_LIMIT` is the time of each algorithm run in seconds; 5 gives a run of
-a few minutes, the default of 120 about forty. At the end irace prints the
-same blocks as the run without an API key above, with the functions your
-model wrote.
+a few minutes, the default of 120 about forty. A run with Claude Haiku ended
+with these lines (the winning function and the original follow them):
+
+```
+# Best configurations as commandlines (first number is the configuration ID, second is the variant; listed from best to worst according to the sum of ranks):
+21 variant_2_iter4 -p 409 -pe 0.1317 -pm 0.1385 -rhoe 0.617
+15 variant_2_iter3 -p 379 -pe 0.1767 -pm 0.1007 -rhoe 0.5414
+16 variant_0_iter2 -p 458 -pe 0.1178 -pm 0.187 -rhoe 0.6028
+8  variant_0_iter2 -p 380 -pe 0.2254 -pm 0.133 -rhoe 0.6089
+
+# LLM Configuration:
+#   API Provider:             anthropic
+#   Model:                    claude-haiku-5-5
+#   Temperature:              not accepted by the model, not applied
+#   Refused by the model:     temperature, top_p
+#   Max Tokens:               2000
+#
+# Overall Metrics:
+#   Total LLM API Calls:      12
+#   Total Retry Attempts:     0
+#   Input Tokens Used:        61,907
+#   Output Tokens Used:       7,542
+#   Total Tokens:             69,449
+#   Total LLM Processing Time: 48.3 seconds
+```
 
 ## Use it on your own algorithm
 
