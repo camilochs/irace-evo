@@ -13,8 +13,9 @@
 #   A configuration listed there runs its variant; any other configuration
 #   (and plain irace, without the file) runs the original, ./bin/brkga,
 #   compiled from src/brkga.cpp when needed. Nothing is ever deleted here:
-#   a variant whose program is missing gets the penalty cost, and the reason
-#   goes to standard error.
+#   a variant whose program is missing, crashes, or runs past the CPU limit
+#   gets the penalty cost, and the reason goes to target-runner.log (irace
+#   reads standard error too, so anything there besides the cost stops it).
 #
 # Environment:
 #   MAXIMIZE    1 (default): the program prints a score to maximise (the
@@ -22,15 +23,15 @@
 #               a program that prints a cost to minimise.
 #   TIME_LIMIT  seconds per run (default 120; the tests use 1).
 #   RUN_LOG     if set, a file where each run appends config_id,executable.
-#   DEBUG       1 to print what happens to standard error.
+#   DEBUG       1 to write what happens to target-runner.log.
 ###############################################################################
 set -u
 MAXIMIZE=${MAXIMIZE:-1}
 PENALTY=999999
 
 error() { echo "$(TZ=UTC date): $0: error: $*" >&2; exit 1; }
-debug() { [ "${DEBUG:-0}" = "1" ] && echo "$(TZ=UTC date): $0: debug: $*" >&2; return 0; }
-penalty() { debug "penalty: $*"; echo "$0: $*" >&2; echo "$PENALTY"; exit 0; }
+debug() { [ "${DEBUG:-0}" = "1" ] && echo "$(TZ=UTC date): debug: $*" >> target-runner.log; return 0; }
+penalty() { echo "$(TZ=UTC date): $*" >> target-runner.log; echo "$PENALTY"; exit 0; }
 
 CONFIG_ID=$1
 INSTANCE_ID=$2
@@ -68,12 +69,21 @@ debug "configuration $CONFIG_ID runs $EXECUTABLE"
 STDOUT=c${CONFIG_ID}-${INSTANCE_ID}-${SEED}.stdout
 STDERR=c${CONFIG_ID}-${INSTANCE_ID}-${SEED}.stderr
 LIMIT=${TIME_LIMIT:-120}
-# A variant may loop forever; give it the time limit plus a margin.
-timeout $((LIMIT * 2 + 10)) "$EXECUTABLE" -i "$INSTANCE" $CONFIG_PARAMS -t "$LIMIT" -tuning > "$STDOUT" 2> "$STDERR"
-RETVAL=$?
+# A variant may loop forever. The program's limit is CPU time (clock()), and
+# with more parallel runs than cores a run takes longer in wall time, so the
+# guard is on CPU time too: twice the limit plus ten seconds. The wall-clock
+# timeout only catches a program that hangs without using the CPU.
+# (macOS has no timeout unless coreutils is installed, as gtimeout.)
+WALL=$(command -v timeout || command -v gtimeout || true)
+# The outer 2>/dev/null silences bash's own notice when the program dies by a
+# signal ("Segmentation fault"), which irace would read as output.
+{ ( ulimit -t $((LIMIT * 2 + 10)); exec ${WALL:+$WALL $((LIMIT * 20 + 60))} "$EXECUTABLE" -i "$INSTANCE" $CONFIG_PARAMS -t "$LIMIT" -tuning ) > "$STDOUT" 2> "$STDERR"
+  RETVAL=$?; } 2> /dev/null
 trap 'rm -f "$STDOUT" "$STDERR"' EXIT
 
-[ $RETVAL -eq 124 ] && penalty "configuration $CONFIG_ID timed out"
+[ $RETVAL -eq 124 ] && penalty "configuration $CONFIG_ID hung (no CPU use for a long time)"
+[ $RETVAL -eq 152 ] || [ $RETVAL -eq 137 ] && penalty "configuration $CONFIG_ID used more than $((LIMIT * 2 + 10)) s of CPU"
+[ $RETVAL -gt 128 ] && penalty "configuration $CONFIG_ID was killed by signal $((RETVAL - 128))"
 [ $RETVAL -ne 0 ] && penalty "configuration $CONFIG_ID exited with status $RETVAL: $(head -c 200 "$STDERR")"
 COST=$(head -n 1 "$STDOUT" | grep -oE '^[[:space:]]*-?[0-9]+(\.[0-9]+)?' | tr -d '[:space:]')
 [ -n "$COST" ] || penalty "configuration $CONFIG_ID printed no cost: $(head -c 200 "$STDOUT")"

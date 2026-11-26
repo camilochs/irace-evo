@@ -106,6 +106,10 @@ if args.refused:
           and all(x == (None, None) for x in sent[2:]) and len(iterations) > 1)
     check("a model that refuses temperature and top_p is called without them", ok,
           f"sent {collections.Counter(sent)}, iterations {iterations}")
+    out = open("irace.out").read()
+    check("the summary says the temperature was not applied",
+          "not accepted by the model, not applied" in out and "Refused by the model:     temperature, top_p" in out,
+          "found" if "not accepted by the model" in out else "not found")
 elif args.temperature is not None or args.top_p is not None:
     sent = collections.Counter((b.get("temperature"), b.get("top_p")) for _, _, b in generation)
     want = (args.temperature, args.top_p)

@@ -48,6 +48,7 @@ the repository root) runs this example against a stand-in for the LLM.
 | `irace-evo-llm-logs/` | what each variant is, and the Python side of each iteration |
 | `logs/irace-evo-llm.log` | every prompt and every answer |
 | `.irace_evo_variants.csv` | which configuration runs which program |
+| `target-runner.log` | why a run got the penalty cost (a variant that crashed, looped or is missing) |
 | `irace.Rdata` | irace's log, as usual |
 
 A new run in the same folder first deletes the variants, sources and

@@ -1114,6 +1114,10 @@ evolve_code_iteration <- function(elite_configs, iteration_stats, scenario,
       scenario$codeEvolutionGlobalMetrics$temperature <- llm_metrics$temperature
       scenario$codeEvolutionGlobalMetrics$max_tokens <- llm_metrics$max_tokens
     }
+    # Fields the model refused so far (e.g. temperature), so the summary
+    # does not report a value that was never applied.
+    scenario$codeEvolutionGlobalMetrics$refused_fields <-
+      union(scenario$codeEvolutionGlobalMetrics$refused_fields, unlist(llm_metrics$refused_fields))
     
     # Store iteration-specific metrics
     iteration_metrics <- list(
@@ -1179,8 +1183,14 @@ print_llm_metrics_summary <- function(scenario) {
   if (!is.null(metrics$model)) {
     cat(sprintf("#   Model:                    %s\n", metrics$model))
   }
+  refused <- metrics$refused_fields
   if (!is.null(metrics$temperature)) {
-    cat(sprintf("#   Temperature:              %.1f\n", metrics$temperature))
+    cat(sprintf("#   Temperature:              %s\n",
+                if ("temperature" %in% refused) "not accepted by the model, not applied"
+                else sprintf("%.1f", metrics$temperature)))
+  }
+  if (length(refused)) {
+    cat(sprintf("#   Refused by the model:     %s\n", paste(refused, collapse = ", ")))
   }
   if (!is.null(metrics$max_tokens)) {
     cat(sprintf("#   Max Tokens:               %d\n", metrics$max_tokens))
