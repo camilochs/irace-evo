@@ -1,35 +1,33 @@
 {
-  "_comment": "irace-evo Configuration Template - Multi-language code evolution settings",
-  "_version": "1.0",
-  
+  "_comment": "irace-evo configuration: what the LLM may change, how to build it, which model to ask, and how to test a variant. Paths are relative to irace's execDir. Every option here is read by irace-evo; see examples/tsp-ga-evolution/code-evolution.json for a filled-in file.",
+
+  "problem_context": {
+    "comment": "J in the paper: the problem and the algorithm, in words. It goes into every prompt; the clearer it is, the better the variants.",
+    "problem_name": "Name of the optimization problem",
+    "problem_description": "What an instance is and what a solution is",
+    "algorithm_approach": "The algorithm being tuned, in one sentence",
+    "optimization_objective": "What is minimised or maximised",
+    "key_challenges": ["What makes the function hard to get right"],
+    "performance_considerations": "How often the function is called, what it must not cost",
+    "domain_knowledge": "Heuristics or facts about the problem the LLM can use"
+  },
+
   "language_config": {
     "language": "cpp",
-    "comment": "Supported languages: cpp, python, java. Each has specific parser and build configurations below."
+    "comment": "cpp, python or java."
   },
-  
+
   "source_config": {
     "source_file": "./src/algorithm.cpp",
-    "function_name": "local_search_heuristic", 
-    "function_signature": "double local_search_heuristic(Solution& sol, int max_iter)",
-    "includes": [
-      "<vector>",
-      "<algorithm>", 
-      "<memory>",
-      "\"solution.h\"",
-      "\"utils.h\""
-    ],
-    "dependencies": [
-      "solution.cpp",
-      "utils.cpp"
-    ],
-    "comment": "Specify the source file and function to evolve. Dependencies will be included in compilation."
+    "function_name": "function_to_evolve",
+    "comment": "The one function of source_file the LLM may rewrite. Variants keep its signature. The executable of the original must be bin/<source_file without extension>, which is what the target runner runs for configurations not paired with a variant."
   },
-  
+
   "build_config": {
     "cpp": {
       "compiler": "g++",
-      "flags": ["-O3", "-std=c++17", "-Wall", "-Wextra"],
-      "include_paths": ["./src", "./include"],
+      "flags": ["-O3", "-std=c++17", "-Wall"],
+      "include_paths": [],
       "library_paths": [],
       "libraries": [],
       "output_dir": "./bin",
@@ -37,228 +35,42 @@
     },
     "python": {
       "interpreter": "python3",
-      "flags": ["-O"],
-      "requirements_file": "./requirements.txt",
-      "output_dir": "./bin",
-      "compile_timeout": 15
+      "output_dir": "./bin"
     },
     "java": {
       "compiler": "javac",
-      "flags": ["-cp", ".", "-O"],
-      "classpath": ["./src", "./lib/*"],
       "output_dir": "./bin",
       "compile_timeout": 45
     },
-    "comment": "Language-specific build configurations. Only the section for your chosen language will be used."
+    "comment": "Only the section of the chosen language is used. A variant is compiled from a temporary copy of source_file; the directory of source_file is always on the C++ include path."
   },
-  
+
   "llm_config": {
-    "api_provider": "openai",
-    "model": "gpt-4",
-    "api_key_env": "OPENAI_API_KEY",
+    "api_provider": "anthropic",
+    "model": "claude-haiku-5-5",
+    "api_key": "",
+    "temperature": 1.0,
+    "top_p": 0.9,
+    "max_tokens": 2000,
     "max_retries": 3,
-    "temperature": 0.2,
-    "temperature_range": {
-      "enabled": false,
-      "min": 0.1,
-      "max": 0.8
-    },
-    "max_tokens": 1500,
     "timeout": 60,
-    "custom_prompt_template": "",
-    "comment": "LLM configuration. Use either 'temperature' for fixed value or 'temperature_range' for random selection. Supported providers: openai, anthropic. API keys should be set as environment variables."
+    "comment": "api_provider: anthropic or openai. Leave api_key empty and export ANTHROPIC_API_KEY or OPENAI_API_KEY. temperature and top_p are Phi in the paper (its experiments used 1.0 and 0.9); top_p is sent only when present, and a model that refuses them is called without them, with a warning. max_retries is per variant. Optional: prompt_template (path to a file replacing the built-in prompt), temperature_range {enabled, min, max} (a random temperature per iteration), use_dynamic_prompting and elite_preservation (both off by default; neither is part of the method in the paper)."
   },
-  
+
   "evolution_config": {
-    "initial_variants": 5,
-    "max_variants_per_iteration": 8,
-    "survival_rate": 0.6,
-    "max_compilation_failures": 5,
-    "diversity_threshold": 0.3,
-    
-    "available_strategies": [
-      "improve_efficiency",
-      "add_randomization", 
-      "modify_logic",
-      "conservative_improvement",
-      "hybrid_approach"
-    ],
-    
-    "strategy_selection": "adaptive",
-    "strategy_weights": {
-      "improve_efficiency": 0.3,
-      "add_randomization": 0.25, 
-      "modify_logic": 0.25,
-      "conservative_improvement": 0.15,
-      "hybrid_approach": 0.05
-    },
-    
-    "custom_strategies": [
-      {
-        "name": "tsp_specific_optimization",
-        "description": "TSP-specific heuristic improvements",
-        "prompt_context": "Focus on TSP problem structure: 2-opt moves, nearest neighbor improvements, edge exchange operations",
-        "examples": [
-          "implement 2-opt local search",
-          "use nearest neighbor construction",
-          "add edge exchange operators",
-          "exploit tour symmetries"
-        ]
-      }
-    ],
-    
-    "comment": "Evolution parameters. Strategies can be built-in or custom. Selection can be 'round_robin', 'weighted', or 'adaptive'."
+    "evolution_focus_iteration": 3,
+    "available_strategies": ["innovate_heuristic_design"],
+    "intelligent_error_correction": true,
+    "max_error_correction_attempts": 2,
+    "custom_strategies": [],
+    "comment": "evolution_focus_iteration is ef in the paper: before that iteration the prompts ask for moderate changes that keep the function's logic, from it on for broader structural changes. available_strategies are taken in turn, one per variant; built in: improve_efficiency, add_randomization, modify_logic, innovate_heuristic_design, conservative_improvement, hybrid_approach, problem_specific. A variant that does not compile is sent back to the LLM with the compiler error up to max_error_correction_attempts times. custom_strategies: [{name, description, ...}] adds your own."
   },
-  
+
   "validation_config": {
-    "syntax_check": true,
     "basic_functionality_test": true,
-    "test_arguments": ["--test-mode"],
+    "test_arguments": ["-i", "./instances/small-instance.txt"],
     "test_timeout": 10,
-    "expected_output_pattern": "^[0-9]+(\\.[0-9]+)?$",
-    "unit_tests": [],
-    "performance_baseline": {
-      "enabled": false,
-      "baseline_executable": "./bin/original_algorithm",
-      "max_performance_degradation": 1.5
-    },
-    "comment": "Validation settings for generated code variants. All tests must pass for a variant to be considered valid."
-  },
-  
-  "cluster_config": {
-    "enabled": false,
-    "type": "slurm",
-    "shared_filesystem": true,
-    "distribute_variants": true,
-    "node_local_storage": "${SLURM_TMPDIR:-/tmp}",
-    "sync_method": "copy",
-    "cleanup_on_exit": true,
-    "slurm_settings": {
-      "partition": "defq",
-      "time_limit": "0-1:00:00",
-      "cpus_per_task": 1,
-      "mem_per_cpu": 8000,
-      "modules": [],
-      "job_name_prefix": "irace-evo",
-      "max_concurrent_jobs": 100,
-      "job_timeout": 3600,
-      "retry_failed_jobs": true,
-      "max_retries": 2
-    },
-    "advanced_options": {
-      "use_node_local_storage": false,
-      "preload_data": true,
-      "compress_executables": false,
-      "batch_job_submission": true,
-      "job_dependency_management": false
-    },
-    "comment": "Cluster-specific settings for SLURM environments. Enable when running on compute clusters. Configure slurm_settings for your specific cluster."
-  },
-  
-  "fallback_config": {
-    "use_previous_working": true,
-    "keep_backup_variants": 3,
-    "emergency_revert": true,
-    "min_successful_variants": 2,
-    "conservative_fallback": true,
-    "comment": "Fallback behavior when code generation fails. Ensures irace can continue with working variants."
-  },
-  
-  "logging_config": {
-    "level": "INFO",
-    "log_file": "./logs/irace-evo.log",
-    "log_variants": true,
-    "log_compilation_errors": true,
-    "log_performance_stats": true,
-    "log_llm_interactions": true,
-    "llm_log_file": "./logs/irace-evo-llm.log",
-    "comment": "Logging configuration. Set log_llm_interactions=true to see detailed LLM input/output in llm_log_file."
-  },
-  
-  "examples": {
-    "comment": "Example configurations for different use cases",
-    
-    "minimal_cpp": {
-      "language_config": {"language": "cpp"},
-      "source_config": {
-        "source_file": "./algorithm.cpp",
-        "function_name": "optimize"
-      },
-      "llm_config": {
-        "api_provider": "openai",
-        "model": "gpt-3.5-turbo"
-      }
-    },
-    
-    "python_optimization": {
-      "language_config": {"language": "python"},
-      "source_config": {
-        "source_file": "./algorithm.py",
-        "function_name": "local_search"
-      },
-      "evolution_config": {
-        "available_strategies": ["pythonic_optimization", "library_integration"]
-      }
-    },
-    
-    "java_enterprise": {
-      "language_config": {"language": "java"},
-      "source_config": {
-        "source_file": "./src/Algorithm.java", 
-        "function_name": "optimizeHeuristic"
-      },
-      "build_config": {
-        "java": {
-          "classpath": ["./lib/commons-lang3.jar", "./lib/guava.jar"]
-        }
-      }
-    },
-    
-    "random_temperature_example": {
-      "language_config": {"language": "cpp"},
-      "source_config": {
-        "source_file": "./algorithm.cpp",
-        "function_name": "optimize"
-      },
-      "llm_config": {
-        "api_provider": "openai",
-        "model": "gpt-4",
-        "temperature_range": {
-          "enabled": true,
-          "min": 0.1,
-          "max": 0.9
-        }
-      }
-    },
-    
-    "slurm_cluster_example": {
-      "language_config": {"language": "cpp"},
-      "source_config": {
-        "source_file": "./src/algorithm.cpp",
-        "function_name": "local_search_heuristic"
-      },
-      "llm_config": {
-        "api_provider": "openai",
-        "model": "gpt-4",
-        "temperature": 0.3
-      },
-      "cluster_config": {
-        "enabled": true,
-        "type": "slurm",
-        "shared_filesystem": true,
-        "slurm_settings": {
-          "partition": "compute",
-          "time_limit": "0-2:00:00",
-          "cpus_per_task": 2,
-          "mem_per_cpu": 16000,
-          "modules": ["gcc/11.2.0", "cmake/3.21.0"],
-          "max_concurrent_jobs": 50
-        }
-      },
-      "evolution_config": {
-        "initial_variants": 10,
-        "max_variants_per_iteration": 20
-      }
-    }
+    "expected_output_pattern": "^-?[0-9]+(\\.[0-9]+)?$",
+    "comment": "Each variant that compiles runs once as: <variant> test_arguments, in execDir. It races only if it exits with status 0 within test_timeout seconds and a line of its output matches expected_output_pattern. Without test_arguments, compiling is the only check."
   }
 }
