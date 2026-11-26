@@ -29,6 +29,18 @@ marked *(paper)*; `tests/evo/` checks each of them on an offline run.
    the `anthropic` package no longer accept these arguments (which broke the
    Anthropic provider); they now travel in the request body, and a model
    that refuses them is called without them, with a warning.
+ * Provider APIs change, and the LLM calls cope: the fields that differ
+   between models (temperature, top_p, the token limit's name, Claude's
+   thinking switch) go in the request body; a field the API refuses is
+   dropped, or renamed when it has another name, and the call is made
+   again; the reply's text is read from whatever blocks carry it;
+   `llm_config.extra_body` passes any new field without a code change. Seen
+   with claude-haiku-5-5, which refuses temperature and top_p and, given a
+   long prompt, thinks before answering (it is now asked not to: the method
+   asks for the function directly).
+ * When every call to the LLM in an iteration fails (a revoked key, a
+   retired model), irace stops with the provider's error instead of racing
+   the original alone.
  * Every iteration generates variants. A rule that skipped the LLM when the
    remaining budget looked small is gone (not in the paper).
  * Fixed: with `elite_preservation`, code evolution stopped after

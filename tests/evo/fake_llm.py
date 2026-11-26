@@ -9,7 +9,7 @@ the temperature, top_p, max_tokens, and the prompt itself.
 The variant it returns is the function from the prompt with a marker comment,
 so it always compiles and each one is distinct.
 
-    python3 fake_llm.py 8765 requests.jsonl order_chromosome
+    python3 fake_llm.py 8765 requests.jsonl order_chromosome [cpp|python]
     OPENAI_BASE_URL=http://127.0.0.1:8765/v1 ANTHROPIC_BASE_URL=http://127.0.0.1:8765 ...
 """
 import itertools
@@ -25,6 +25,23 @@ counter = itertools.count(1)
 
 
 FUNCTION = sys.argv[3] if len(sys.argv) > 3 else "order_chromosome"
+LANGUAGE = sys.argv[4] if len(sys.argv) > 4 else "cpp"
+
+
+def python_function_from(prompt: str) -> str:
+    """The definition of FUNCTION in the first block that has it, by indentation."""
+    for block in re.findall(r"```[a-zA-Z+]*\n(.*?)```", prompt, re.S):
+        lines = block.splitlines()
+        for i, line in enumerate(lines):
+            if re.match(rf"\s*def {FUNCTION}\s*\(", line):
+                indent = len(line) - len(line.lstrip())
+                body = [line]
+                for nxt in lines[i + 1:]:
+                    if nxt.strip() and len(nxt) - len(nxt.lstrip()) <= indent:
+                        break
+                    body.append(nxt)
+                return "\n".join(body).rstrip()
+    raise ValueError("no function in the prompt")
 
 
 def function_from(prompt: str) -> str:
@@ -49,18 +66,31 @@ def function_from(prompt: str) -> str:
 
 
 def answer(prompt: str) -> str:
-    code = function_from(prompt)
     n = next(counter)
+    if LANGUAGE == "python":
+        code = python_function_from(prompt)
+        head, _, rest = code.partition("\n")
+        indent = " " * (len(rest) - len(rest.lstrip())) if rest.strip() else "    "
+        return f"```python\n{head}\n{indent}# fake-llm variant {n}\n{rest}\n```"
+    code = function_from(prompt)
     # Put the marker inside the body, after the first brace, so a variant stays
     # a single function definition whatever surrounds it.
     brace = code.index("{")
     code = code[: brace + 1] + f"\n    // fake-llm variant {n}" + code[brace + 1 :]
-    return f"```cpp\n{code}\n```"
+    return f"```{'java' if LANGUAGE == 'java' else 'cpp'}\n{code}\n```"
 
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
+
+    def error(self, status, kind, message):
+        data = json.dumps({"type": "error", "error": {"type": kind, "message": message}}).encode()
+        self.send_response(status)
+        self.send_header("content-type", "application/json")
+        self.send_header("content-length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
@@ -68,9 +98,21 @@ class Handler(BaseHTTPRequestHandler):
             f.write(json.dumps({"path": self.path, "body": body}) + "\n")
         # FAKE_REFUSE_SAMPLING=1 behaves like a model that takes no
         # temperature or top_p: the request is refused with a 400.
-        if os.environ.get("FAKE_REFUSE_SAMPLING") == "1" and ("temperature" in body or "top_p" in body):
+        # Ways a provider's API can change, to check irace-evo copes:
+        #   FAKE_DOWN=1             every call fails with 401 (revoked key)
+        #   FAKE_REFUSE_SAMPLING=1  temperature and top_p are refused
+        #   FAKE_OLD_OPENAI=1       max_completion_tokens is refused
+        #   FAKE_THINKING=1         Claude's reply starts with a thinking block
+        if os.environ.get("FAKE_DOWN") == "1":
+            return self.error(401, "authentication_error", "invalid x-api-key")
+        if os.environ.get("FAKE_OLD_OPENAI") == "1" and "max_completion_tokens" in body:
+            return self.error(400, "invalid_request_error",
+                              "Unrecognized request argument supplied: max_completion_tokens")
+        # Like the real API, it names one refused field per error.
+        refused = [k for k in ("temperature", "top_p") if k in body]
+        if os.environ.get("FAKE_REFUSE_SAMPLING") == "1" and refused:
             data = json.dumps({"type": "error", "error": {"type": "invalid_request_error",
-                               "message": "temperature and top_p are not supported for this model"}}).encode()
+                               "message": f"{refused[0]}: Extra inputs are not permitted"}}).encode()
             self.send_response(400)
             self.send_header("content-type", "application/json")
             self.send_header("content-length", str(len(data)))
@@ -93,9 +135,12 @@ class Handler(BaseHTTPRequestHandler):
                           "total_tokens": (len(prompt) + len(text)) // 4},
             }
         else:
+            content = [{"type": "text", "text": text}]
+            if os.environ.get("FAKE_THINKING") == "1":
+                content.insert(0, {"type": "thinking", "thinking": "Let me think.", "signature": "fake"})
             reply = {
                 "id": "fake", "type": "message", "role": "assistant", "model": body["model"],
-                "content": [{"type": "text", "text": text}], "stop_reason": "end_turn",
+                "content": content, "stop_reason": "end_turn",
                 "usage": {"input_tokens": len(prompt) // 4, "output_tokens": len(text) // 4},
             }
         data = json.dumps(reply).encode()

@@ -19,6 +19,7 @@ ap.add_argument("--ef", type=int, default=3)
 ap.add_argument("--temperature", type=float, default=None)
 ap.add_argument("--top-p", type=float, default=None)
 ap.add_argument("--refused", action="store_true", help="the fake LLM refused temperature and top_p")
+ap.add_argument("--old-openai", action="store_true", help="the fake LLM refused max_completion_tokens")
 args = ap.parse_args()
 os.chdir(args.work)
 failures = 0
@@ -98,8 +99,11 @@ check(f"standard focus before iteration {args.ef}, aggressive from it (E_i)", no
 if args.refused:
     # A model that refuses them: the first call carries them, every later one
     # does not, and the run goes on.
+    # The first call carries both; the API refuses temperature, the second
+    # call carries top_p and is refused too; every later call carries neither.
     sent = [(b.get("temperature"), b.get("top_p")) for _, _, b in generation]
-    ok = sent[0] == (args.temperature, args.top_p) and all(x == (None, None) for x in sent[1:]) and len(iterations) > 1
+    ok = (sent[:2] == [(args.temperature, args.top_p), (None, args.top_p)]
+          and all(x == (None, None) for x in sent[2:]) and len(iterations) > 1)
     check("a model that refuses temperature and top_p is called without them", ok,
           f"sent {collections.Counter(sent)}, iterations {iterations}")
 elif args.temperature is not None or args.top_p is not None:
@@ -107,6 +111,19 @@ elif args.temperature is not None or args.top_p is not None:
     want = (args.temperature, args.top_p)
     check("the configured temperature and top_p are sent (Phi)", set(sent) == {want},
           f"wanted {want}, sent {dict(sent)}")
+
+# 5b. Claude is asked not to think first (the method asks for the function
+#     directly), on every call to the Anthropic API.
+anthropic_calls = [b for r in requests if r["path"].endswith("/messages") for b in [r["body"]]]
+if anthropic_calls:
+    off = sum(1 for b in anthropic_calls if b.get("thinking") == {"type": "disabled"})
+    check("Claude is called with thinking disabled", off == len(anthropic_calls),
+          f"{off} of {len(anthropic_calls)} calls")
+
+if args.old_openai:
+    limits = [("max_completion_tokens" in b, "max_tokens" in b) for _, _, b in generation]
+    ok = limits[0] == (True, False) and all(x == (False, True) for x in limits[1:]) and len(iterations) > 1
+    check("an old OpenAI model gets max_tokens instead", ok, f"{collections.Counter(limits)}")
 
 # 6. The API key never reaches a file.
 leaks = []
