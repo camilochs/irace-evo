@@ -6,9 +6,10 @@
 #   docker run --rm -v "$PWD":/src:ro rocker/r-ver:4.4.2 /src/tests/evo/fresh-install.sh
 set -euo pipefail
 apt-get update -qq > /dev/null
-# Python, a C++ compiler, and libpng (reticulate depends on the png package,
-# which compiles against it on Linux).
-apt-get install -y -qq --no-install-recommends python3 python3-venv g++ make bc procps libpng-dev zlib1g-dev > /dev/null
+# What the README lists for Linux: Python with its shared library (which
+# reticulate binds to) and venv, a C++ compiler, and the libraries two R
+# packages compile against (fs: libuv; png, for reticulate: libpng).
+apt-get install -y -qq --no-install-recommends python3 python3-dev python3-venv g++ make libuv1-dev libpng-dev zlib1g-dev bc procps > /dev/null
 cp -R /src /irace-evo && cd /irace-evo
 
 echo '$ python3 -m venv ~/.venvs/irace-evo'
