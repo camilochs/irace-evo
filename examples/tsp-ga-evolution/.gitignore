@@ -7,3 +7,4 @@ irace-evo-llm-logs/
 *.Rdata
 *.stdout
 *.stderr
+target-runner.log

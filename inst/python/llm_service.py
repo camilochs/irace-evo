@@ -1033,6 +1033,7 @@ Your task is to improve ONLY the `{function_name}` function within this complete
         metrics['model'] = self.model
         metrics['temperature'] = self.temperature
         metrics['max_tokens'] = getattr(self, 'max_tokens', None)
+        metrics['refused_fields'] = sorted(_SAMPLING_REFUSED.get(self.model, set()))
         return metrics
     
     def reset_metrics(self):

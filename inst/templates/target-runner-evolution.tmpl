@@ -1,203 +1,58 @@
 #!/bin/bash
 ###############################################################################
-# irace-evo Target Runner Template
-# 
-# This script is executed for each configuration in code evolution mode.
-# It selects the appropriate executable based on the configuration ID and 
-# runs it with the given parameters.
+# irace-evo target runner template. Copy it next to your scenario, make it
+# executable, and edit the three lines marked EDIT.
 #
-# This script is run in the execution directory (execDir, --exec-dir).
-# Supports both local and SLURM distributed execution.
+# irace calls it as:
+#   target-runner <config_id> <instance_id> <seed> <instance> [parameters...]
+# and reads one number from its standard output: the cost to minimise.
+# irace reads standard error too: anything there besides the cost stops it,
+# so every message of this script goes to target-runner.log.
 #
-# PARAMETERS:
-# $1 is the candidate configuration number  
-# $2 is the instance ID
-# $3 is the seed
-# $4 is the instance name
-# The rest ($* after `shift 4') are parameters to the run
+# Which program runs: irace-evo pairs each configuration with a code variant
+# in .irace_evo_variants.csv (config_id,executable_path,variant_id). A
+# configuration listed there runs its variant; any other one runs ORIGINAL.
 #
-# RETURN VALUE:
-# This script should print one numerical value: the cost that must be minimized.
-# Exit with 0 if no error, with 1 in case of error
+# A variant that is missing, crashes, prints no cost or runs past the CPU
+# limit gets the PENALTY cost (the paper: runtime errors are penalised); the
+# run goes on.
 ###############################################################################
+set -u
+ORIGINAL=./bin/my-algorithm   # EDIT: your compiled original program
+PENALTY=999999                # EDIT: a cost worse than any real one
+LIMIT=${TIME_LIMIT:-60}       # EDIT: seconds of CPU a run may use
 
-error() {
-    echo "`TZ=UTC date`: $0: irace-evo error: $@" >&2
-    exit 1
-}
+log() { echo "$(TZ=UTC date): $*" >> target-runner.log; }
+penalty() { log "$*"; echo "$PENALTY"; exit 0; }
 
-debug() {
-    if [ "$IRACE_EVO_DEBUG" = "1" ]; then
-        echo "`TZ=UTC date`: $0: irace-evo debug: $@" >&2
+CONFIG_ID=$1; INSTANCE_ID=$2; SEED=$3; INSTANCE=$4
+shift 4 || { echo "target-runner: not enough arguments" >&2; exit 1; }
+
+EXECUTABLE=$ORIGINAL
+if [ -s .irace_evo_variants.csv ]; then
+    MAPPED=$(awk -F',' -v id="$CONFIG_ID" '$1 == id { gsub(/"/, "", $2); print $2; exit }' .irace_evo_variants.csv)
+    if [ -n "$MAPPED" ]; then
+        EXECUTABLE=$MAPPED
+        [ -x "$EXECUTABLE" ] || penalty "configuration $CONFIG_ID is paired with $EXECUTABLE, which is missing"
     fi
-}
-
-# Parse arguments given by irace
-CONFIG_ID=$1
-INSTANCE_ID=$2
-SEED=$3
-INSTANCE=$4
-shift 4 || error "Not enough parameters"
-CONFIG_PARAMS=$*
-
-debug "Configuration ID: $CONFIG_ID, Instance: $INSTANCE, Seed: $SEED"
-
-# SLURM-specific setup
-setup_slurm_node() {
-    if [ -n "$SLURM_JOB_ID" ]; then
-        debug "SLURM job detected: $SLURM_JOB_ID on node $SLURMD_NODENAME"
-        
-        # Check for SLURM distribution script
-        SLURM_SETUP_SCRIPT=".irace_evo_slurm/distribute_variants.sh"
-        if [ -f "$SLURM_SETUP_SCRIPT" ]; then
-            debug "Running SLURM distribution script"
-            source "$SLURM_SETUP_SCRIPT"
-        else
-            debug "No SLURM distribution script found, assuming shared filesystem"
-        fi
-    fi
-}
-
-# Setup SLURM node if needed
-setup_slurm_node
-
-# Check if we're in code evolution mode by looking for variant mapping
-VARIANT_MAP_FILE=".irace_evo_variants.csv"
-
-# Try SLURM-specific location first
-if [ -n "$SLURM_JOB_ID" ] && [ -f ".irace_evo_slurm/.irace_evo_variants.csv" ]; then
-    VARIANT_MAP_FILE=".irace_evo_slurm/.irace_evo_variants.csv"
-    debug "Using SLURM variant mapping file: $VARIANT_MAP_FILE"
 fi
 
-if [ ! -f "$VARIANT_MAP_FILE" ]; then
-    error "Code evolution variant mapping file not found: $VARIANT_MAP_FILE"
-fi
-
-debug "Found variant mapping file: $VARIANT_MAP_FILE"
-
-# Extract executable path for this configuration
-# CSV format: config_id,executable_path,variant_id
-EXE_PATH=$(awk -F',' -v config="$CONFIG_ID" '$1 == config {print $2; exit}' "$VARIANT_MAP_FILE")
-
-if [ -z "$EXE_PATH" ]; then
-    error "No executable found for configuration ID $CONFIG_ID"
-fi
-
-# Remove quotes if present
-EXE_PATH=$(echo "$EXE_PATH" | sed 's/^"\(.*\)"$/\1/')
-
-debug "Using executable: $EXE_PATH"
-
-# Verify executable exists and is runnable
-if [ ! -f "$EXE_PATH" ]; then
-    error "Executable not found: $EXE_PATH"
-fi
-
-if [ ! -x "$EXE_PATH" ]; then
-    error "Executable is not executable: $EXE_PATH"
-fi
-
-# Set up execution parameters
-# Standard irace parameters that most target algorithms expect
-EXE_PARAMS="--instance $INSTANCE --seed $SEED $CONFIG_PARAMS"
-
-# Alternative parameter format (uncomment if your algorithm expects different format)
-# EXE_PARAMS="-i $INSTANCE -s $SEED $CONFIG_PARAMS"
-
-debug "Execution command: $EXE_PATH $EXE_PARAMS"
-
-# Create output files for this run
 STDOUT=c${CONFIG_ID}-${INSTANCE_ID}-${SEED}.stdout
 STDERR=c${CONFIG_ID}-${INSTANCE_ID}-${SEED}.stderr
+trap 'rm -f "$STDOUT" "$STDERR"' EXIT
+# CPU limit for a variant that loops forever; a wall-clock limit as well
+# when timeout (or gtimeout on macOS) exists. The outer 2>/dev/null
+# silences bash's notice when the program dies by a signal.
+WALL=$(command -v timeout || command -v gtimeout || true)
+# EDIT the command line below to your program's options.
+{ ( ulimit -t $((LIMIT * 2 + 10)); exec ${WALL:+$WALL $((LIMIT * 20 + 60))} "$EXECUTABLE" --instance "$INSTANCE" --seed "$SEED" "$@" ) > "$STDOUT" 2> "$STDERR"
+  RETVAL=$?; } 2> /dev/null
 
-# Execute the algorithm
-# Timeout can be set via environment variable
-TIMEOUT=${IRACE_EVO_TIMEOUT:-300}
-
-timeout $TIMEOUT $EXE_PATH $EXE_PARAMS 1> $STDOUT 2> $STDERR
-EXIT_CODE=$?
-
-# Check for timeout
-if [ $EXIT_CODE -eq 124 ]; then
-    echo "999999"  # Return large penalty for timeout
-    debug "Algorithm timed out after $TIMEOUT seconds"
-    rm -f "$STDOUT" "$STDERR"
-    exit 0
-fi
-
-# Check for other execution errors
-if [ $EXIT_CODE -ne 0 ]; then
-    error "Algorithm execution failed with exit code $EXIT_CODE. Check $STDERR for details."
-fi
-
-# Check if output file exists
-if [ ! -s "$STDOUT" ]; then
-    error "No output produced by algorithm. Output file $STDOUT is missing or empty."
-fi
-
-# Extract cost from output
-# This assumes the cost is the first number on the last line of output
-# Modify this section based on your algorithm's output format
-COST=$(tail -n 1 "$STDOUT" | grep -o -E '^[[:space:]]*[+-]?[0-9]*\.?[0-9]+([eE][+-]?[0-9]+)?' | head -n 1)
-
-if [ -z "$COST" ]; then
-    # Alternative: try to extract any number from the output
-    COST=$(grep -o -E '[+-]?[0-9]*\.?[0-9]+([eE][+-]?[0-9]+)?' "$STDOUT" | tail -n 1)
-fi
-
-if [ -z "$COST" ]; then
-    error "Could not extract cost from algorithm output. Check $STDOUT"
-fi
-
-# Validate that COST is a valid number
-if ! echo "$COST" | grep -q -E '^[+-]?[0-9]*\.?[0-9]+([eE][+-]?[0-9]+)?$'; then
-    error "Extracted cost '$COST' is not a valid number"
-fi
-
-debug "Extracted cost: $COST"
-
-# Output the cost (this is what irace will use)
+[ $RETVAL -eq 124 ] && penalty "configuration $CONFIG_ID hung"
+[ $RETVAL -eq 152 ] || [ $RETVAL -eq 137 ] && penalty "configuration $CONFIG_ID used more than $((LIMIT * 2 + 10)) s of CPU"
+[ $RETVAL -gt 128 ] && penalty "configuration $CONFIG_ID was killed by signal $((RETVAL - 128))"
+[ $RETVAL -ne 0 ] && penalty "configuration $CONFIG_ID exited with status $RETVAL: $(head -c 200 "$STDERR")"
+# The cost: the first number on the last line of output.
+COST=$(tail -n 1 "$STDOUT" | grep -oE '[+-]?[0-9]*\.?[0-9]+([eE][+-]?[0-9]+)?' | head -n 1)
+[ -n "$COST" ] || penalty "configuration $CONFIG_ID printed no cost: $(tail -c 200 "$STDOUT")"
 echo "$COST"
-
-# Clean up temporary files (comment out for debugging)
-rm -f "$STDOUT" "$STDERR"
-
-exit 0
-
-###############################################################################
-# CONFIGURATION NOTES:
-#
-# 1. Output Format:
-#    Your algorithm should output the objective value (cost to minimize) 
-#    in a format that this script can parse. By default, it expects the 
-#    cost as the first number on the last line.
-#
-# 2. Timeout Handling:
-#    Set IRACE_EVO_TIMEOUT environment variable to change timeout (seconds).
-#    Default is 300 seconds (5 minutes).
-#
-# 3. Debug Mode:
-#    Set IRACE_EVO_DEBUG=1 to enable debug output.
-#
-# 4. Parameter Format:
-#    Modify EXE_PARAMS if your algorithm expects different parameter format.
-#    Common formats:
-#      --instance $INSTANCE --seed $SEED $CONFIG_PARAMS
-#      -i $INSTANCE -s $SEED $CONFIG_PARAMS  
-#      $INSTANCE $SEED $CONFIG_PARAMS
-#
-# 5. Error Handling:
-#    This script will exit with error code 1 if:
-#    - Required files are missing
-#    - Algorithm execution fails
-#    - Cannot extract valid cost from output
-#
-# 6. Cost Extraction:
-#    Modify the COST extraction logic based on your algorithm's output format.
-#    Examples:
-#    - Last line, first number: tail -n 1 | grep -o -E '^[0-9.]+'
-#    - Line starting with "Cost:": grep "^Cost:" | cut -d' ' -f2
-#    - JSON format: grep '"cost"' | cut -d':' -f2 | tr -d ' ,'
-#
-###############################################################################

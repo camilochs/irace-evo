@@ -69,6 +69,14 @@ marked *(paper)*; `tests/evo/` checks each of them on an offline run.
    it imports. `post-install.sh` (with a fixed home path) is gone;
    `install-irace.sh` installs the R and Python parts.
  * The template keeps only the options the code reads.
+ * Target runners (the example's and `inst/templates/target-runner-evolution.tmpl`):
+   a variant that crashes, prints no cost or loops is penalised and the
+   run goes on (the template stopped irace instead; the paper penalises
+   runtime errors); the loop guard is on CPU time, as the example's
+   program measures its limit, so parallel runs on fewer cores are not cut
+   short; they work without GNU `timeout` (macOS); and nothing reaches
+   standard error, which irace reads as output (reasons go to
+   `target-runner.log`). `tests/evo/runner-test.sh` checks this.
  * Example: the target runner never deletes files (a missing variant used
    to wipe `bin/` and the sources, and the rest of the run used the
    original); the problem maximises, so the runner returns the negative

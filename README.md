@@ -159,8 +159,10 @@ model wrote.
 3. Write a target runner that reads `.irace_evo_variants.csv`
    (`config_id,executable_path,variant_id`) and runs the program paired with
    its configuration. [`inst/templates/target-runner-evolution.tmpl`](inst/templates/target-runner-evolution.tmpl)
-   does that; adapt the line that builds the command. The example's
-   `target-runner` also runs the original for configurations of plain irace.
+   does that; edit its three marked lines. It prints only the cost (irace
+   reads standard error too, so its messages go to `target-runner.log`),
+   and gives a variant that crashes or loops the penalty cost instead of
+   stopping irace.
 4. Add the three `codeEvolution` lines to your scenario and run irace.
 
 The function works best when it is small and does one thing: a scoring rule,
@@ -173,11 +175,14 @@ algorithm gives the LLM more ways to break it.
   thresholds) are not tuned by irace.
 - The cost shown at the end is an estimate from token counts; your
   provider's bill is the real one.
-- Some models refuse `temperature` and `top_p`. irace-evo then calls them
-  without these values and says so once.
-- C++ is what the paper and the example use. The Python and Java handlers
-  have no end-to-end test yet, and SLURM support has not been tested on a
-  cluster since the changes listed in `NEWS.md`.
+- C++ is what the paper and the example use. Python and Java run end to
+  end in `tests/evo` (a small knapsack heuristic in each). SLURM support has
+  not been tested on a cluster since the changes listed in `NEWS.md`.
+- Providers change their APIs. When a model refuses a field (some refuse
+  `temperature` and `top_p`), irace-evo drops it, calls again and says so
+  once; `extra_body` in `llm_config` passes a new field without a code
+  change. If every call of an iteration fails, irace stops with the
+  provider's error.
 - A run deletes what the previous run left in the same folder (variants,
   their sources and the LLM logs).
 

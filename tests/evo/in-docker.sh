@@ -4,6 +4,8 @@
 set -u
 cp -R /src /build && cd /build && R CMD INSTALL . > /out/install.log 2>&1 || { tail -20 /out/install.log; exit 1; }
 status=0
+echo "== the example's target runner"
+tests/evo/runner-test.sh || status=1
 for provider in ${PROVIDERS:-openai anthropic}; do
   echo "== $provider"
   tests/evo/run-example.sh "$provider" "/out/$provider" > /dev/null || { tail -30 "/out/$provider/irace.out"; status=1; continue; }
