@@ -10,6 +10,10 @@
 .irace_evo_env <- new.env(parent = emptyenv())
 .irace_evo_env$python_initialized <- FALSE
 
+# irace_note() prints its arguments as they are, so a message needs its own
+# newline; without one the next message ran into it.
+evo_note <- function(...) irace_note(sub("\n*$", "\n", paste0(..., collapse = "")))
+
 initialize_python_backend <- function(scenario) {
   if (isTRUE(.irace_evo_env$python_initialized)) return(TRUE)
   
@@ -30,52 +34,27 @@ initialize_python_backend <- function(scenario) {
   
   # Try to initialize Python backend
   tryCatch({
-    # --- BEGIN: enhanced debugging block ---
-  message("irace-evo: Searching for a valid Python interpreter...")
+    # RETICULATE_PYTHON picks the interpreter; without it, the first of the
+    # usual paths that exists.
+    python_env_path <- Sys.getenv("RETICULATE_PYTHON")
+    if (nzchar(python_env_path)) {
+      if (!file.exists(python_env_path))
+        irace_error("RETICULATE_PYTHON points to a file that does not exist: ", python_env_path)
+      reticulate::use_python(python_env_path, required = TRUE)
+    } else {
+      for (py_path in c("/usr/bin/python3", "/usr/local/bin/python3", "/opt/homebrew/bin/python3", "/usr/bin/python")) {
+        if (file.exists(py_path)) {
+          reticulate::use_python(py_path, required = TRUE)
+          break
+        }
+      }
+    }
+    if (!reticulate::py_available(initialize = TRUE)) {
+      irace_error("Python is not available. Code evolution needs Python 3.9 or later; ",
+                  "set RETICULATE_PYTHON to its path.")
+    }
+    evo_note("irace-evo: Python ", reticulate::py_config()$version, " at ", reticulate::py_config()$python)
 
-  # Force the Python configuration
-  python_env_path <- Sys.getenv("RETICULATE_PYTHON")
-  
-  if (nzchar(python_env_path)) {
-   message(paste("irace-evo: Found the RETICULATE_PYTHON environment variable. Trying to use:", python_env_path))
-   if (file.exists(python_env_path)) {
-    reticulate::use_python(python_env_path, required = TRUE)
-   } else {
-    message(paste("irace-evo: WARNING: The RETICULATE_PYTHON path does not exist:", python_env_path))
-   }
-  } else {
-   message("irace-evo: RETICULATE_PYTHON is not set. Searching common paths...")
-   python_paths <- c("/usr/bin/python3", "/usr/local/bin/python3", "/usr/bin/python")
-   found <- FALSE
-   for (py_path in python_paths) {
-    message(paste("irace-evo: -> Comprobando si existe:", py_path))
-    if (file.exists(py_path)) {
-     message(paste("irace-evo:    ¡Encontrado! Intentando usar:", py_path))
-     reticulate::use_python(py_path, required = TRUE)
-     found <- TRUE
-     break
-    }
-   }
-   if (!found) message("irace-evo: No Python executable found in common paths.")
-  }
-  
-  # --- PASO DE DIAGNÓSTICO MÁS IMPORTANTE ---
-  # Print the configuration reticulate detected after the setup attempt.
-  message("irace-evo: >>> reticulate configuration state BEFORE the final check:")
-  py_config_output <- utils::capture.output(try(reticulate::py_config(), silent = TRUE))
-  message(paste(py_config_output, collapse = "\n"))
-  message("irace-evo: <<< End of configuration state.")
-  
-  # Final Python availability check
-  message("irace-evo: Comprobando disponibilidad final con reticulate::py_available()...")
-  if (!reticulate::py_available()) {
-   message("irace-evo: ERROR: reticulate::py_available() ha devuelto FALSE.")
-   irace_error("Python is not available. Code evolution requires Python 3.7+ bla bla")
-  } else {
-      message("irace-evo: ÉXITO: reticulate::py_available() ha devuelto TRUE.")
-    }
-    # --- END: debugging block ---
-    
     # Look for Python modules in inst/python/
     python_path <- system.file("python", package = "irace", mustWork = TRUE)
     if (!dir.exists(python_path)) {
@@ -90,22 +69,21 @@ initialize_python_backend <- function(scenario) {
       result <- tryCatch({
         reticulate::py_run_string(paste0("import ", module))
         TRUE
-      }, error = function(e) FALSE)
-      
-      if (!result) {
-        irace_error("Failed to import required Python module: ", module, 
-                   ". Check Python dependencies in inst/python/")
+      }, error = function(e) conditionMessage(e))
+
+      if (!isTRUE(result)) {
+        irace_error("Failed to import the Python module '", module, "': ", result)
       }
     }
     
     .irace_evo_env$python_initialized <- TRUE
-    irace_note("irace-evo: Python backend initialized successfully")
+    evo_note("irace-evo: Python backend initialized successfully")
     return(TRUE)
     
   }, error = function(e) {
-    irace_error("Failed to initialize Python backend for code evolution. ",
-               "Error2: ", e$message, 
-               ". Ensure Python 3.7+ is available and required modules are installed.")
+    irace_error("Failed to initialize the Python backend for code evolution: ", e$message,
+                " Install the Python packages with: pip install -r ",
+                system.file("python", "requirements.txt", package = "irace"))
   })
 }
 
@@ -119,12 +97,12 @@ initialize_python_backend_slurm <- function(scenario) {
   is_master_node <- Sys.getenv("SLURM_PROCID", "0") == "0"
   
   if (!is_master_node) {
-    irace_note("irace-evo: Worker node detected, skipping Python initialization")
+    evo_note("irace-evo: Worker node detected, skipping Python initialization")
     .irace_evo_env$python_initialized <- TRUE
     return(TRUE)
   }
   
-  irace_note("irace-evo: Initializing Python backend on SLURM master node")
+  evo_note("irace-evo: Initializing Python backend on SLURM master node")
   
   # Standard initialization for master node
   if (!requireNamespace("reticulate", quietly = TRUE)) {
@@ -163,7 +141,7 @@ initialize_python_backend_slurm <- function(scenario) {
     check_llm_credentials_slurm()
     
     .irace_evo_env$python_initialized <- TRUE
-    irace_note("irace-evo: SLURM master node Python backend initialized successfully")
+    evo_note("irace-evo: SLURM master node Python backend initialized successfully")
     return(TRUE)
     
   }, error = function(e) {
@@ -184,11 +162,11 @@ setup_llm_credentials <- function(config_data) {
     if (api_provider == "openai") {
       # Set OpenAI API key as environment variable
       Sys.setenv(OPENAI_API_KEY = config_data$llm_config$api_key)
-      irace_note("irace-evo: OpenAI API key configured from config file")
+      evo_note("irace-evo: OpenAI API key configured from config file")
     } else if (api_provider == "anthropic") {
       # Set Anthropic API key as environment variable  
       Sys.setenv(ANTHROPIC_API_KEY = config_data$llm_config$api_key)
-      irace_note("irace-evo: Anthropic API key configured from config file")
+      evo_note("irace-evo: Anthropic API key configured from config file")
     } else {
       irace_warning("irace-evo: Unknown API provider: ", api_provider)
     }
@@ -214,11 +192,11 @@ check_llm_credentials_slurm <- function() {
   }
   
   if (openai_key != "") {
-    irace_note("irace-evo: OpenAI API key detected")
+    evo_note("irace-evo: OpenAI API key detected")
   }
   
   if (anthropic_key != "") {
-    irace_note("irace-evo: Anthropic API key detected")
+    evo_note("irace-evo: Anthropic API key detected")
   }
 }
 
@@ -229,225 +207,115 @@ check_llm_credentials_slurm <- function() {
 #' @param scenario irace scenario with code evolution settings
 #' @return List of generated code variants with their executables
 generate_code_variants <- function(elite_configs, iteration_stats, scenario, num_variants = NULL) {
-  
-  # LOG: function entry point
-  message("LOG: Entering generate_code_variants() for iteration ", iteration_stats$iteration)
-  
-  # Load code evolution configuration FIRST to get API keys
   config_data <- jsonlite::fromJSON(scenario$codeEvolutionConfig)
-  
-  # Configure API keys from config file BEFORE Python initialization
+  # The keys go into the environment before Python starts, so its clients
+  # find them there; they are never written into a command or a log.
   setup_llm_credentials(config_data)
-  
   if (!initialize_python_backend(scenario)) {
     irace_error("Cannot initialize Python backend for code evolution")
   }
-  
-# Extraemos los rangos directamente de la columna .RANK. del data.frame.
-# A lower rank is better, so it acts as a "cost".
-costs <- elite_configs$.RANK.
 
-# Compute the statistics
-best_cost_so_far <- min(costs)
-average_cost <- mean(costs)
+  # Ranks of the elites (lower is better). The first iteration has no race
+  # yet, so it has no ranks.
+  costs <- elite_configs$.RANK.
+  if (is.null(costs) || !length(costs) || all(is.na(costs))) costs <- NA_real_
+  best_cost_so_far <- suppressWarnings(min(costs, na.rm = TRUE))
+  average_cost <- mean(costs, na.rm = TRUE)
+  worst_cost <- suppressWarnings(max(costs, na.rm = TRUE))
+  finite <- function(x) if (is.finite(x)) x else NA_real_
 
-message("LOG: Performance statistics computed using the .RANK column.")
-
-# Prepare enhanced context for LLM with ranking information
-context <- list(
-  iteration_context = list(
-    current_iteration = iteration_stats$iteration,
-    max_iterations = 4,  # Reasonable estimate based on typical irace runs
+  context <- list(
+    iteration_context = list(
+      current_iteration = iteration_stats$iteration,
+      max_iterations = iteration_stats$nb_iterations,
+      elite_configurations = elite_configs
+    ),
+    performance_stats = list(
+      best_cost_so_far = finite(best_cost_so_far),
+      average_cost = finite(average_cost),
+      worst_cost = finite(worst_cost),
+      performance_range = finite(worst_cost - best_cost_so_far),
+      convergence_trend = if (iteration_stats$iteration > 1) "improving" else "initial",
+      elite_rankings = elite_configs$.RANK.,
+      num_configurations_tested = nrow(elite_configs)
+    ),
+    improvement_guidance = list(
+      performance_gap = finite(average_cost - best_cost_so_far),
+      ranking_pressure = finite(best_cost_so_far / worst_cost)
+    ),
+    target_variants = if (!is.null(num_variants)) num_variants else scenario$codeEvolutionVariants,
+    scenario_config = list(execDir = scenario$execDir),
     elite_configurations = elite_configs
-  ),
-  performance_stats = list(
-    best_cost_so_far = best_cost_so_far,
-    average_cost = average_cost,
-    worst_cost = max(costs),
-    performance_range = max(costs) - min(costs),
-    convergence_trend = if (iteration_stats$iteration > 1) "improving" else "initial",
-    elite_rankings = elite_configs$.RANK.,
-    num_configurations_tested = nrow(elite_configs)
-  ),
-  improvement_guidance = list(
-    needs_aggressive_changes = (best_cost_so_far > average_cost * 0.8), # If best is close to average, need bigger changes
-    performance_gap = average_cost - best_cost_so_far,
-    ranking_pressure = best_cost_so_far / max(costs) # How much room for improvement
-  ),
-  target_variants = if (!is.null(num_variants)) num_variants else scenario$codeEvolutionVariants,
-  # Add scenario config for dynamic prompting
-  scenario_config = list(
-    execDir = scenario$execDir
-  ),
-  elite_configurations = elite_configs  # For dynamic prompting performance analysis
-)
+  )
 
-message("LOG: 'context' object created successfully.")
-  
-  # Context structure validated
-  
-  # Call Python backend to generate variants
+  # A single strategy must still reach Python as a list.
+  if (!is.null(config_data$evolution_config$available_strategies)) {
+    config_data$evolution_config$available_strategies <- as.list(config_data$evolution_config$available_strategies)
+  }
+  # Adapting the prompt to the performance history is not part of the
+  # method described in the paper, so it is off unless the configuration
+  # turns it on.
+  if (is.null(config_data$llm_config$use_dynamic_prompting)) {
+    config_data$llm_config$use_dynamic_prompting <- FALSE
+  }
+  config_data$llm_config$scenario_config <- list(execDir = scenario$execDir)
+  # The key stays in the environment; the configuration handed to Python
+  # (and printed in its logs) does not carry it.
+  config_data$llm_config$api_key <- NULL
+
   tryCatch({
-    # Convert R data to Python-compatible format
-    context_json <- jsonlite::toJSON(context, auto_unbox = TRUE)
-    
-    # TEMPORAL DEBUG: Force available_strategies to be an array
-    if (!is.null(config_data$evolution_config$available_strategies)) {
-      # Ensure it's always treated as an array, even if single element
-      config_data$evolution_config$available_strategies <- as.list(config_data$evolution_config$available_strategies)
+    # The data travels as Python objects, not spliced into code: nothing
+    # needs escaping, and the command that is logged holds no data.
+    reticulate::py_run_string("import json, os")
+    py_os <- reticulate::import("os", convert = FALSE)
+    for (key in c("OPENAI_API_KEY", "ANTHROPIC_API_KEY")) {
+      value <- Sys.getenv(key, "")
+      if (nzchar(value)) py_os$environ$`__setitem__`(key, value)
     }
-    
-    # Enable dynamic prompting by default
-    if (is.null(config_data$llm_config$use_dynamic_prompting)) {
-      config_data$llm_config$use_dynamic_prompting <- TRUE
-      message("irace-evo: 🎯 Dynamic prompting ENABLED - Will adapt prompts based on performance history")
-    } else if (isTRUE(config_data$llm_config$use_dynamic_prompting)) {
-      message("irace-evo: 🎯 Dynamic prompting ENABLED via config")
-    } else {
-      message("irace-evo: ⚪ Dynamic prompting DISABLED via config")
-    }
-    
-    # Add scenario config to LLM config for dynamic prompting
-    config_data$llm_config$scenario_config <- list(
-      execDir = scenario$execDir
-    )
-    
-    config_json <- jsonlite::toJSON(config_data, auto_unbox = TRUE)
-    # --- INICIO: CÓDIGO CORREGIDO ---
-    # To keep the string valid in Python we must escape TWO things:
-    # 1. Las barras invertidas (\) deben convertirse en (\\)
-    # 2. Las comillas simples (') deben convertirse en (\')
-    
-    escape_for_python <- function(json_string) {
-      # OJO: En R, para representar una \ literal en un string, se escribe \\.
-      # Por eso, para buscar una \ (\\) y reemplazarla por dos \\ (\\\\), la sintaxis es rara.
-      json_string <- gsub('\\', '\\\\', json_string, fixed = TRUE)
-      json_string <- gsub("'", "\\'", json_string, fixed = TRUE)
-      return(json_string)
-    }
-    context_json_escaped <- escape_for_python(context_json)
-    config_json_escaped <- escape_for_python(config_json)
-    # Get API key for direct passing to Python
-    api_key <- Sys.getenv("OPENAI_API_KEY", "")
-    if (nzchar(api_key)) {
-      api_key_escaped <- escape_for_python(api_key)
-    } else {
-      api_key_escaped <- ""
-    }
-    
-    # Build the Python command as a string without leading indentation.
-    # Every line starts flush at the left margin.
+    py_main <- reticulate::import_main(convert = FALSE)
+    py_main$irace_evo_context_json <- as.character(jsonlite::toJSON(context, auto_unbox = TRUE, na = "null"))
+    py_main$irace_evo_config_json <- as.character(jsonlite::toJSON(config_data, auto_unbox = TRUE, na = "null"))
     python_command <- paste0(
-      "import json\n",
-      "import os\n",
       "from logging_config import setup_logging\n",
       "setup_logging()\n",
-      if (nzchar(api_key_escaped)) paste0("os.environ['OPENAI_API_KEY'] = '", api_key_escaped, "'\n") else "",
-      "context = json.loads('", context_json_escaped, "')\n",
-      "config = json.loads('", config_json_escaped, "')\n",
+      "import code_manager\n",
+      "context = json.loads(irace_evo_context_json)\n",
+      "config = json.loads(irace_evo_config_json)\n",
       "manager = code_manager.CodeEvolutionManager(config)\n",
       "variants = manager.generate_and_compile_variants(context)"
     )
-    
-    message("LOG: Ejecutando el siguiente comando en Python:\n", python_command)
-    
-    # Verify Python can see the environment variable
-    reticulate::py_run_string("import os; api_key = os.getenv('OPENAI_API_KEY'); print('Python sees OPENAI_API_KEY:', bool(api_key), '| Length:', len(api_key) if api_key else 0)")
-    
-    # Test basic OpenAI connectivity before proceeding
-    message("LOG: Testing basic OpenAI connectivity...")
-    test_result <- tryCatch({
-      reticulate::py_run_string("
-import openai
-client = openai.OpenAI(timeout=30)
-try:
-    test_response = client.chat.completions.create(
-        model='gpt-4o',
-        messages=[{'role': 'user', 'content': 'Hello, respond with just OK'}],
-        max_tokens=10,
-        timeout=30
-    )
-    print('OpenAI test SUCCESS:', test_response.choices[0].message.content.strip())
-except Exception as e:
-    print('OpenAI test FAILED:', str(e))
-      ")
-      TRUE
-    }, error = function(e) {
-      message("LOG: OpenAI connectivity test failed: ", e$message)
-      FALSE
-    })
-    
-    if (test_result) {
-      message("LOG: OpenAI connectivity test completed.")
-    }
-    
-    # Execute Python code generation with timing
+
     llm_start_time <- Sys.time()
     reticulate::py_run_string(python_command)
-    llm_end_time <- Sys.time()
-    llm_processing_time <- as.numeric(difftime(llm_end_time, llm_start_time, units = "secs"))
-    
-    message("LOG: reticulate::py_run_string() execution finished.")
-    
+    llm_processing_time <- as.numeric(difftime(Sys.time(), llm_start_time, units = "secs"))
     python_result <- reticulate::py$variants
-    
-    # Save detailed Python execution log
+
     llm_log_dir <- file.path(scenario$execDir, "irace-evo-llm-logs")
-    if (!dir.exists(llm_log_dir)) {
-      dir.create(llm_log_dir, recursive = TRUE, showWarnings = FALSE)
-    }
-    
-    execution_log_file <- file.path(llm_log_dir, "python_execution.log")
-    execution_info <- paste0(
-      "=== Python Execution Log (Iteration ", iteration_stats$iteration, ") ===\n",
-      "Timestamp: ", Sys.time(), "\n\n",
-      "=== Python Command Executed ===\n",
-      python_command, "\n\n",
-      "=== Python Result Structure ===\n",
-      paste(capture.output(str(python_result)), collapse = "\n"), "\n\n"
-    )
-    
-    tryCatch({
-      cat(execution_info, file = execution_log_file, append = TRUE)
-    }, error = function(e) {
-      irace_warning("irace-evo: Failed to save execution log: ", e$message)
-    })
-    
-    variants_test <- python_result[[1]]
-    
+    dir.create(llm_log_dir, recursive = TRUE, showWarnings = FALSE)
+    tryCatch(cat(
+      "=== Python execution (iteration ", iteration_stats$iteration, ") ===\n",
+      "Timestamp: ", format(Sys.time()), "\n\n",
+      "=== Python command ===\n", python_command, "\n\n",
+      "=== Result structure ===\n",
+      paste(utils::capture.output(utils::str(python_result)), collapse = "\n"), "\n\n",
+      sep = "", file = file.path(llm_log_dir, "python_execution.log"), append = TRUE),
+      error = function(e) irace_warning("irace-evo: Failed to save execution log: ", e$message))
+
     if (is.null(python_result) || length(python_result) < 2) {
       irace_error("Invalid Python result format. Expected list with variants and metrics.")
     }
-    
-    variants <- python_result[[1]]  # variants
-    metrics <- python_result[[2]]   # metrics
-    
+    variants <- python_result[[1]]
+    metrics <- python_result[[2]]
     if (is.null(variants) || length(variants) == 0) {
-      irace_error("No code variants returned from Python backend")
+      # The new configurations then take the surviving variants and the original.
+      irace_warning("irace-evo: no code variant was generated in iteration ", iteration_stats$iteration)
+      variants <- list()
     }
-    
-    # Add actual LLM processing time to metrics
     metrics$llm_processing_time <- llm_processing_time
-    
-    # Convert to R format
     processed_variants <- process_generated_variants(variants, scenario, iteration_stats$iteration)
-    
-    # NUEVO LOG: Antes de devolver el resultado
-    message("LOG: Variants processed. Exiting generate_code_variants() successfully.")
-    
-    return(list(
-      variants = processed_variants,
-      metrics = metrics
-    ))
-    
-  }, error = function(e) { 
-    
-    # Print the detailed error BEFORE stopping execution
-    message("\n\n--- ERROR DETALLADO DE PYTHON CAPTURADO ---\n")
-    print(e)
-    message("\n--- FIN DEL ERROR DETALLADO ---\n\n")
-    
-    irace_error("Code variant generation failed. See detailed error above.")
+    list(variants = processed_variants, metrics = metrics)
+  }, error = function(e) {
+    irace_error("Code variant generation failed: ", conditionMessage(e))
   })
 }
 
@@ -480,18 +348,18 @@ process_generated_variants <- function(variants, scenario, current_iteration = 1
     if (!is.null(variant$strategy) && variant$strategy == "elite_preserved") {
       # For elite variants, maintain consistent naming but mark as preserved
       variant_id <- paste0("variant_", i-1, "_iter", current_iteration, "_elite")
-      irace_note("irace-evo: Elite variant preserved as: ", variant_id)
+      evo_note("irace-evo: Elite variant preserved as: ", variant_id)
     } else {
       # Save source code to file for logging with iteration number (0-indexed to match Python)
       variant_id <- paste0("variant_", i-1, "_iter", current_iteration)
     }
-    source_file_path <- file.path(source_log_dir, paste0(variant_id, ".cpp"))
+    source_file_path <- file.path(source_log_dir, paste0(variant_id, source_extension(scenario)))
     
     # Write source code to file
     if (!is.null(variant$code) && nzchar(variant$code)) {
       tryCatch({
         writeLines(variant$code, source_file_path)
-        irace_note("irace-evo: Saved source code to ", source_file_path)
+        evo_note("irace-evo: Saved source code to ", source_file_path)
       }, error = function(e) {
         irace_warning("irace-evo: Failed to save source code for ", variant_id, ": ", e$message)
       })
@@ -530,69 +398,13 @@ process_generated_variants <- function(variants, scenario, current_iteration = 1
       irace_warning("irace-evo: Failed to save variant info for ", variant_id, ": ", e$message)
     })
     
-    # Handle executable path creation differently for elite vs new variants
-    if (!is.null(variant$strategy) && variant$strategy == "elite_preserved") {
-      # For elite variants, we need to compile from source or find existing executable
-      irace_note("irace-evo: Processing elite preserved variant: ", variant_id)
-      
-      # Compile the preserved source code
-      config_data <- jsonlite::fromJSON(scenario$codeEvolutionConfig)
-      base_name <- tools::file_path_sans_ext(basename(config_data$source_config$source_file))
-      
-      # Extract clean variant name for consistent naming
-      clean_variant_name <- gsub("_elite$", "", variant_id)  # Remove _elite suffix
-      clean_variant_name <- gsub("^variant_", "algorithm_var_", clean_variant_name)  # Convert to standard format
-      
-      new_executable_path <- file.path(scenario$execDir, "bin", clean_variant_name)
-      
-      # Ensure bin directory exists
-      bin_dir <- file.path(scenario$execDir, "bin")
-      if (!dir.exists(bin_dir)) {
-        dir.create(bin_dir, recursive = TRUE, showWarnings = FALSE)
-      }
-      
-      # Compile the preserved variant
-      compile_command <- paste("g++ -O3 -std=c++17 -Wall", 
-                              shQuote(source_file_path), 
-                              "-o", shQuote(new_executable_path),
-                              "2>/dev/null")
-      
-      compile_result <- system(compile_command, ignore.stdout = TRUE, ignore.stderr = TRUE)
-      
-      if (compile_result == 0) {
-        irace_note("irace-evo: Successfully compiled elite variant: ", new_executable_path)
-      } else {
-        irace_warning("irace-evo: Failed to compile elite variant: ", variant_id)
-      }
-      
-    } else {
-      # Create iteration-specific executable path for new variants
-      original_exe_path <- variant$executable
-      
-      if (is.null(original_exe_path) || !nzchar(original_exe_path)) {
-        irace_warning("irace-evo: Invalid executable path for variant ", variant_id)
-        new_executable_path <- file.path(scenario$execDir, "bin", paste0("invalid_", variant_id))
-      } else {
-        exe_dir <- dirname(original_exe_path)
-        exe_name <- basename(original_exe_path)
-        exe_base <- tools::file_path_sans_ext(exe_name)
-        exe_ext <- tools::file_ext(exe_name)
-        
-        # Add iteration number to executable name
-        if (exe_ext != "") {
-          new_exe_name <- paste0(exe_base, "_iter", current_iteration, ".", exe_ext)
-        } else {
-          new_exe_name <- paste0(exe_base, "_iter", current_iteration)
-        }
-        new_executable_path <- file.path(exe_dir, new_exe_name)
-        
-        # Copy or move the compiled executable to the iteration-specific name
-        if (file.exists(original_exe_path)) {
-          file.copy(original_exe_path, new_executable_path, overwrite = TRUE)
-          # Keep the original for the Python backend's validation
-        }
-      }
-    }
+    # Python names each program after its iteration
+    # (bin/algorithm_<variant>_iter<k>), so a later iteration never writes
+    # over a program that configurations of an earlier one run.
+    new_executable_path <- if (is.null(variant$executable) || !nzchar(variant$executable)) {
+      irace_warning("irace-evo: Variant ", variant_id, " has no executable")
+      NA_character_
+    } else normalizePath(variant$executable, mustWork = FALSE)
     
     processed_variants[[i]] <- list(
       id = variant_id,
@@ -600,135 +412,91 @@ process_generated_variants <- function(variants, scenario, current_iteration = 1
       source_code = variant$code,
       source_file_path = source_file_path,
       parent_id = if (is.null(variant$parent)) "initial" else variant$parent,
-      compilation_success = file.exists(new_executable_path),
+      compilation_success = !is.na(new_executable_path) && file.exists(new_executable_path),
       generation_strategy = if (is.null(variant$strategy)) "unknown" else variant$strategy
     )
   }
   
-  # Filter only successful compilations
-  successful_variants <- Filter(function(x) x$compilation_success, processed_variants)
-  
-  if (length(successful_variants) == 0) {
-    irace_error("No code variants compiled successfully")
-  }
-  
+  # Only the variants that compiled race (Algorithm 1, line 6). None is not
+  # an error: the new configurations then take the surviving variants and
+  # the original.
+  successful_variants <- Filter(function(x) isTRUE(x$compilation_success), processed_variants)
   if (length(successful_variants) < scenario$codeEvolutionVariants) {
-    irace_warning("Only ", length(successful_variants), " out of ", 
+    irace_warning("Only ", length(successful_variants), " out of ",
                   scenario$codeEvolutionVariants, " variants compiled successfully")
   }
-  
-  return(successful_variants)
+  successful_variants
 }
 
-#' Update target-runner to use code evolution
+#' Pair the configurations of this iteration with code variants
 #'
-#' @param variants List of generated code variants  
+#' A configuration is a pair (theta, A) (paper, Sect. 2.2): once a
+#' configuration has been given a variant it keeps it, on every instance and
+#' in every later iteration. Only the configurations sampled in this
+#' iteration get a variant here, chosen in turn from the pool of Algorithm 1,
+#' line 7: the variants that passed validation in this iteration (A_valid),
+#' the variants of the elite configurations (A_survived) and the original A0.
+#' The new variants come first in the turn, so each gets a configuration
+#' whenever there are as many new configurations as new variants.
+#'
+#' The pairing is written to `.irace_evo_variants.csv` in execDir
+#' (config_id, executable_path, variant_id), which the target runner reads.
+#'
+#' @param variants List of new, validated variants (may be empty)
 #' @param scenario irace scenario
-#' @return Updated scenario with variant-aware target runner
-setup_variant_target_runner <- function(variants, scenario) {
-  
-  # Load configuration to get correct executable name
+#' @param elite_ids IDs of the elite configurations entering this race
+#' @param new_ids IDs of the configurations sampled in this iteration
+#' @return Updated scenario
+setup_variant_target_runner <- function(variants, scenario, elite_ids = integer(0), new_ids = integer(0)) {
   config_data <- jsonlite::fromJSON(scenario$codeEvolutionConfig)
-  source_file <- config_data$source_config$source_file
-  
-  # Extract executable name from source file (remove path and .cpp extension)
-  base_name <- tools::file_path_sans_ext(basename(source_file))
-  executable_name <- base_name
-  
-  # Add the original algorithm as the first variant
-  original_variant <- list(
-    id = "original",
-    executable_path = file.path(scenario$execDir, "bin", executable_name),  # Path to original algorithm
-    strategy = "baseline",
-    parent_id = "none"
-  )
-  
-  # Load existing variants from previous iterations (if any)
+  base_name <- tools::file_path_sans_ext(basename(config_data$source_config$source_file))
+  original_variant <- list(id = "original",
+                           executable_path = file.path(scenario$execDir, "bin", base_name))
+
   variant_map_file <- file.path(scenario$execDir, ".irace_evo_variants.csv")
-  existing_variants <- list()
-  existing_variant_map <- NULL
-  
-  if (file.exists(variant_map_file)) {
-    tryCatch({
-      existing_variant_map <- read.csv(variant_map_file, stringsAsFactors = FALSE)
-      # Extract unique variants from existing mapping
-      unique_existing <- unique(existing_variant_map[, c("executable_path", "variant_id")])
-      for (i in 1:nrow(unique_existing)) {
-        existing_variants[[length(existing_variants) + 1]] <- list(
-          id = unique_existing$variant_id[i],
-          executable_path = unique_existing$executable_path[i]
-        )
-      }
-      irace_note("irace-evo: Loaded ", length(existing_variants), " variants from previous iterations")
-    }, error = function(e) {
-      irace_warning("irace-evo: Failed to load existing variants: ", e$message)
-      existing_variants <- list()
-    })
-  }
-  
-  # Combine existing variants, original, and new generated variants
-  all_variants <- c(existing_variants, list(original_variant), variants)
-  
-  # Remove duplicates based on variant ID
-  unique_variants <- list()
-  seen_ids <- character(0)
-  
-  for (variant in all_variants) {
-    if (!(variant$id %in% seen_ids)) {
-      unique_variants[[length(unique_variants) + 1]] <- variant
-      seen_ids <- c(seen_ids, variant$id)
-    }
-  }
-  
-  all_variants <- unique_variants
-  
-  # Create mapping file for all accumulated variants with round-robin assignment
-  num_variants <- length(all_variants)
-  # Increase the upper bound to handle more configurations (e.g., 200 to accommodate accumulated variants)
-  max_expected_configs <- max(200, num_variants * 20)  # Larger upper bound for accumulated variants
-  
-  config_ids <- 1:max_expected_configs
-  variant_assignments <- rep(1:num_variants, length.out = max_expected_configs)
-  
-  variant_map <- data.frame(
-    config_id = config_ids,
-    executable_path = sapply(variant_assignments, function(idx) all_variants[[idx]]$executable_path),
-    variant_id = sapply(variant_assignments, function(idx) all_variants[[idx]]$id),
-    stringsAsFactors = FALSE
-  )
-  
-  irace_note("irace-evo: Created accumulated variant mapping with round-robin assignment for ", max_expected_configs, 
-             " configurations using ", num_variants, " total variants (", length(variants), " new + ", length(existing_variants) + 1, " existing)")
-  
-  # Save accumulated mapping to file
-  write.csv(variant_map, variant_map_file, row.names = FALSE)
-  
-  # Handle SLURM distribution
+  old_map <- if (file.exists(variant_map_file))
+               utils::read.csv(variant_map_file, stringsAsFactors = FALSE)
+             else data.frame(config_id = integer(0), executable_path = character(0),
+                             variant_id = character(0), stringsAsFactors = FALSE)
+
+  # A_survived: the variants the elite configurations were paired with.
+  survived_rows <- old_map[old_map$config_id %in% elite_ids, , drop = FALSE]
+  survived_rows <- survived_rows[!duplicated(survived_rows$variant_id), , drop = FALSE]
+  survived <- lapply(seq_len(nrow(survived_rows)), function(i)
+    list(id = survived_rows$variant_id[i], executable_path = survived_rows$executable_path[i]))
+
+  pool <- c(variants, survived, list(original_variant))
+  pool <- pool[!duplicated(vapply(pool, function(v) v$id, ""))]
+
+  # Configurations paired before this iteration keep their variant; the new
+  # ones take the pool in turn.
+  new_ids <- sort(setdiff(new_ids, old_map$config_id))
+  turn <- rep_len(seq_along(pool), length(new_ids))
+  new_rows <- data.frame(
+    config_id = new_ids,
+    executable_path = vapply(turn, function(i) pool[[i]]$executable_path, ""),
+    variant_id = vapply(turn, function(i) pool[[i]]$id, ""),
+    stringsAsFactors = FALSE)
+  variant_map <- rbind(old_map[!(old_map$config_id %in% new_ids), , drop = FALSE], new_rows)
+  variant_map <- variant_map[order(variant_map$config_id), , drop = FALSE]
+  utils::write.csv(variant_map, variant_map_file, row.names = FALSE)
+
+  evo_note("irace-evo: ", length(new_ids), " new configurations paired with ", length(pool),
+             " code variants (", length(variants), " new, ", length(survived),
+             " from the elites, and the original)\n")
+
   if (!is.null(scenario$batchmode) && scenario$batchmode == "slurm" && scenario$parallel > 1) {
-    distribute_variants_slurm(all_variants, variant_map, scenario)
+    distribute_variants_slurm(pool, variant_map, scenario)
   }
-  
-  # Store original target runner only once
   if (is.null(scenario$originalTargetRunner)) {
     scenario$originalTargetRunner <- scenario$targetRunner
   }
-  
-  # Update target runner data to include variant mapping
-  scenario$targetRunnerData <- list(
-    original_runner = scenario$originalTargetRunner,
-    variant_map_file = variant_map_file,
-    variants = all_variants
-  )
-  
-  # Mark that variants are now available for IMMEDIATE use
+  scenario$targetRunnerData <- list(original_runner = scenario$originalTargetRunner,
+                                    variant_map_file = variant_map_file,
+                                    variants = pool)
   scenario$codeEvolutionVariantsReady <- TRUE
-  
-  # Store variant mapping in scenario for access during result printing
   scenario$codeEvolutionVariantMap <- variant_map
-  
-  irace_note("irace-evo: Code variants prepared. Using evolution-aware target runner IMMEDIATELY.")
-  
-  return(scenario)
+  scenario
 }
 
 #' Add variant information to configurations
@@ -748,10 +516,10 @@ add_variant_information <- function(configurations, scenario) {
   
   # Try to load variant mapping from CSV if not in scenario
   if (is.null(scenario$codeEvolutionVariantMap)) {
-    csv_file <- ".irace_evo_variants.csv"
+    csv_file <- file.path(scenario$execDir, ".irace_evo_variants.csv")
     if (file.exists(csv_file)) {
       tryCatch({
-        variant_map <- read.csv(csv_file, stringsAsFactors = FALSE)
+        variant_map <- utils::read.csv(csv_file, stringsAsFactors = FALSE)
         if (nrow(variant_map) > 0 && "config_id" %in% colnames(variant_map) && 
             "variant_id" %in% colnames(variant_map)) {
           scenario$codeEvolutionVariantMap <- variant_map
@@ -803,10 +571,8 @@ add_variant_information <- function(configurations, scenario) {
         return(raw_variant_id)
       }
     } else {
-      # For configurations beyond our mapping, use round-robin
-      num_variants <- length(unique(variant_map$variant_id))
-      variant_idx <- ((id - 1) %% num_variants) + 1
-      return(paste0("variant_", variant_idx))
+      # Not paired: the target runner runs the original for it.
+      return("original")
     }
   })
   
@@ -888,7 +654,7 @@ configurations_print_command_with_variants <- function(configurations, parameter
 #' @param scenario irace scenario
 distribute_variants_slurm <- function(variants, variant_map, scenario) {
   
-  irace_note("irace-evo: Distributing variants for SLURM execution")
+  evo_note("irace-evo: Distributing variants for SLURM execution")
   
   # Create SLURM-specific directories and files
   slurm_dir <- file.path(scenario$execDir, ".irace_evo_slurm")
@@ -912,23 +678,23 @@ distribute_variants_slurm <- function(variants, variant_map, scenario) {
       # Make executable
       Sys.chmod(slurm_exec_path, mode = "0755")
       
-      # Update mapping with SLURM paths
-      variant_map$executable_path[i] <- slurm_exec_path
+      # Every configuration paired with this variant runs the copy
+      variant_map$executable_path[variant_map$variant_id == variant$id] <- slurm_exec_path
       
-      irace_note("irace-evo: Copied variant ", i, " to ", slurm_exec_path)
+      evo_note("irace-evo: Copied variant ", i, " to ", slurm_exec_path)
     }
   }
   
   # Save updated mapping
   slurm_variant_map_file <- file.path(slurm_dir, ".irace_evo_variants.csv")
-  write.csv(variant_map, slurm_variant_map_file, row.names = FALSE)
+  utils::write.csv(variant_map, slurm_variant_map_file, row.names = FALSE)
   
   # Create distribution script for SLURM nodes
   create_slurm_distribution_script(slurm_dir, scenario)
   
   # Update main mapping to point to SLURM location
   main_variant_map_file <- file.path(scenario$execDir, ".irace_evo_variants.csv")
-  write.csv(variant_map, main_variant_map_file, row.names = FALSE)
+  utils::write.csv(variant_map, main_variant_map_file, row.names = FALSE)
 }
 
 #' Create distribution script for SLURM nodes
@@ -989,7 +755,7 @@ trap cleanup_node EXIT
   writeLines(script_content, script_path)
   Sys.chmod(script_path, mode = "0755")
   
-  irace_note("irace-evo: Created SLURM distribution script: ", script_path)
+  evo_note("irace-evo: Created SLURM distribution script: ", script_path)
 }
 
 #' Check if code evolution is enabled and properly configured
@@ -1015,7 +781,7 @@ setup_code_evolution_signal_handler <- function(scenario) {
   interrupt_handler <- function() {
     tryCatch({
       scenario <- get(".irace_evo_scenario", envir = .GlobalEnv, inherits = FALSE)
-      irace_note("irace-evo: Interrupt detected, cleaning up processes...")
+      evo_note("irace-evo: Interrupt detected, cleaning up processes...")
       kill_orphaned_processes(scenario)
     }, error = function(e) {
       message("Error during interrupt cleanup: ", e$message)
@@ -1032,7 +798,7 @@ setup_code_evolution_signal_handler <- function(scenario) {
   # Set the interrupt handler
   options(interrupt = interrupt_handler)
   
-  irace_note("irace-evo: Signal handler setup for process cleanup")
+  evo_note("irace-evo: Signal handler setup for process cleanup")
 }
 
 #' Validate generated variants for obvious issues
@@ -1041,76 +807,36 @@ setup_code_evolution_signal_handler <- function(scenario) {
 #' @param scenario irace scenario
 #' @return Filtered list of variants
 validate_variants <- function(variants, scenario) {
-  if (is.null(variants) || length(variants) == 0) {
+  if (is.null(variants) || length(variants) == 0) return(variants)
+  # The test described by validation_config in the configuration file: run
+  # the variant with test_arguments, within test_timeout seconds, and match
+  # its output against expected_output_pattern. Without test_arguments (or
+  # with basic_functionality_test = false), compiling is the validation.
+  test <- jsonlite::fromJSON(scenario$codeEvolutionConfig)$validation_config
+  if (is.null(test) || isFALSE(test$basic_functionality_test) || !length(test$test_arguments)) {
     return(variants)
   }
-  
-  irace_note("irace-evo: Validating ", length(variants), " generated variants...")
-  
-  valid_variants <- list()
-  
-  for (i in seq_along(variants)) {
-    variant <- variants[[i]]
-    variant_id <- if ("variant_id" %in% names(variant)) variant$variant_id else paste0("variant_", i)
-    
-    tryCatch({
-      # Check if executable exists
-      if (!"executable_path" %in% names(variant) || is.null(variant$executable_path)) {
-        irace_note("irace-evo: Warning: Variant ", variant_id, " has no executable path, skipping")
-        next
-      }
-      
-      executable_path <- file.path(scenario$execDir, variant$executable_path)
-      if (!file.exists(executable_path)) {
-        irace_note("irace-evo: Warning: Variant ", variant_id, " executable not found: ", executable_path)
-        next
-      }
-      
-      # Quick smoke test: run variant with minimal parameters and short timeout
-      test_instance <- list.files(file.path(scenario$execDir, "instances"), pattern = "\\.tsp$", full.names = TRUE)[1]
-      if (!is.null(test_instance) && file.exists(test_instance)) {
-        cmd <- paste(executable_path, 
-                    "--instance", test_instance,
-                    "--population-size 10 --generations 5 --seed 12345",
-                    "2>/dev/null")
-        
-        result <- tryCatch({
-          system(paste("timeout 10", cmd), intern = TRUE, ignore.stderr = TRUE)
-        }, error = function(e) NULL)
-        
-        if (is.null(result) || length(result) == 0) {
-          irace_note("irace-evo: DISCARDING variant ", variant_id, " - failed smoke test (infinite loop or crash)")
-          # Remove the problematic executable
-          if (file.exists(executable_path)) {
-            file.remove(executable_path)
-          }
-          next  # Skip this variant completely
-        } else {
-          irace_note("irace-evo: Variant ", variant_id, " passed smoke test")
-        }
-      }
-      
-      valid_variants[[length(valid_variants) + 1]] <- variant
-      
-    }, error = function(e) {
-      irace_note("irace-evo: Warning: Error validating variant ", variant_id, ": ", e$message)
-    })
-  }
-  
-  discarded_count <- length(variants) - length(valid_variants)
-  if (discarded_count > 0) {
-    irace_note("irace-evo: Discarded ", discarded_count, " problematic variants")
-    
-    # If we have too few valid variants, try to generate replacements
-    if (length(valid_variants) < max(1, scenario$codeEvolutionVariants * 0.5)) {
-      irace_note("irace-evo: Too many variants discarded. Need to regenerate replacements...")
-      # Return the valid variants we have - the calling function should handle regeneration
-      attr(valid_variants, "needs_regeneration") <- TRUE
-      attr(valid_variants, "discarded_count") <- discarded_count
+  timeout <- if (is.null(test$test_timeout)) 30 else test$test_timeout
+  valid <- list()
+  for (variant in variants) {
+    output <- withr::with_dir(scenario$execDir, suppressWarnings(tryCatch(
+      system2(variant$executable_path, args = shQuote(test$test_arguments),
+              stdout = TRUE, stderr = FALSE, timeout = timeout),
+      error = function(e) structure(character(0), status = 1L))))
+    status <- attr(output, "status")
+    ok <- is.null(status) || identical(as.integer(status), 0L)
+    if (ok && !is.null(test$expected_output_pattern)) {
+      ok <- any(grepl(test$expected_output_pattern, trimws(output), perl = TRUE))
+    }
+    if (ok) {
+      valid[[length(valid) + 1L]] <- variant
+    } else {
+      evo_note("irace-evo: Discarding ", variant$id, ": it failed the validation test (exit status ",
+                 if (is.null(status)) 0L else status, ", output '", paste(utils::head(output, 2), collapse = " "), "')\n")
     }
   }
-  
-  return(valid_variants)
+  evo_note("irace-evo: ", length(valid), " of ", length(variants), " variants passed the validation test\n")
+  valid
 }
 
 #' Kill orphaned variant processes that may be still running
@@ -1152,10 +878,10 @@ kill_orphaned_processes <- function(scenario) {
       system(cmd, ignore.stdout = TRUE, ignore.stderr = TRUE)
     }
     
-    irace_note("irace-evo: Killed orphaned variant processes")
+    evo_note("irace-evo: Killed orphaned variant processes")
     
   }, error = function(e) {
-    irace_note("irace-evo: Warning: Could not kill orphaned processes: ", e$message)
+    evo_note("irace-evo: Warning: Could not kill orphaned processes: ", e$message)
   })
 }
 
@@ -1164,7 +890,7 @@ kill_orphaned_processes <- function(scenario) {
 #' @param scenario irace scenario
 cleanup_previous_execution <- function(scenario) {
   
-  irace_note("irace-evo: Cleaning up files from previous execution...")
+  evo_note("irace-evo: Cleaning up files from previous execution...")
   
   # Load configuration to get correct executable and source names
   config_data <- jsonlite::fromJSON(scenario$codeEvolutionConfig)
@@ -1182,21 +908,21 @@ cleanup_previous_execution <- function(scenario) {
     # Remove variant mapping file (should be empty or non-existent anyway)
     if (file.exists(variant_map_file)) {
       file.remove(variant_map_file)
-      irace_note("irace-evo: Removed previous variant mapping file")
+      evo_note("irace-evo: Removed previous variant mapping file")
     }
     
     # Remove previous source code files
     source_log_dir <- file.path(scenario$execDir, "irace-evo-sources")
     if (dir.exists(source_log_dir)) {
       unlink(source_log_dir, recursive = TRUE)
-      irace_note("irace-evo: Removed previous source code directory")
+      evo_note("irace-evo: Removed previous source code directory")
     }
     
     # Remove previous LLM logs
     llm_log_dir <- file.path(scenario$execDir, "irace-evo-llm-logs")
     if (dir.exists(llm_log_dir)) {
       unlink(llm_log_dir, recursive = TRUE)
-      irace_note("irace-evo: Removed previous LLM logs directory")
+      evo_note("irace-evo: Removed previous LLM logs directory")
     }
     
     # Remove previous variant executables (but keep the original algorithm)
@@ -1224,11 +950,11 @@ cleanup_previous_execution <- function(scenario) {
       
       if (length(all_variant_files) > 0) {
         file.remove(all_variant_files)
-        irace_note("irace-evo: Removed ", length(all_variant_files), " previous variant executables")
+        evo_note("irace-evo: Removed ", length(all_variant_files), " previous variant executables")
       }
     }
   } else {
-    irace_note("irace-evo: Skipping cleanup - active variants in use")
+    evo_note("irace-evo: Skipping cleanup - active variants in use")
   }
   
   # Clean up any remaining temporary files from previous runs
@@ -1236,24 +962,24 @@ cleanup_previous_execution <- function(scenario) {
   temp_patterns <- c("*.stdout", "*.stderr", "c[0-9]*-[0-9]*-[0-9]*.stdout", "c[0-9]*-[0-9]*-[0-9]*.stderr")
   
   for (pattern in temp_patterns) {
-    temp_files <- list.files(exec_dir, pattern = glob2rx(pattern), full.names = TRUE)
+    temp_files <- list.files(exec_dir, pattern = utils::glob2rx(pattern), full.names = TRUE)
     if (length(temp_files) > 0) {
       file.remove(temp_files)
-      irace_note("irace-evo: Removed ", length(temp_files), " temporary output files")
+      evo_note("irace-evo: Removed ", length(temp_files), " temporary output files")
     }
   }
   
   # Remove any duplicate source files that might exist in the main directory
   source_patterns <- c("variant_*.cpp", "algorithm_var_*.cpp", "*.cpp.bak")
   for (pattern in source_patterns) {
-    source_files <- list.files(exec_dir, pattern = glob2rx(pattern), full.names = TRUE)
+    source_files <- list.files(exec_dir, pattern = utils::glob2rx(pattern), full.names = TRUE)
     # Exclude the original source file
     original_source <- file.path(exec_dir, dirname(source_file), basename(source_file))
     source_files <- source_files[source_files != original_source]
     
     if (length(source_files) > 0) {
       file.remove(source_files)
-      irace_note("irace-evo: Removed ", length(source_files), " duplicate source files")
+      evo_note("irace-evo: Removed ", length(source_files), " duplicate source files")
     }
   }
   
@@ -1264,7 +990,7 @@ cleanup_previous_execution <- function(scenario) {
   variant_csv_file <- file.path(exec_dir, ".irace_evo_variants.csv")
   if (file.exists(variant_csv_file)) {
     file.remove(variant_csv_file)
-    irace_note("irace-evo: Removed previous variant mapping file")
+    evo_note("irace-evo: Removed previous variant mapping file")
   }
   
   # Reset scenario flags
@@ -1272,23 +998,24 @@ cleanup_previous_execution <- function(scenario) {
   scenario$originalTargetRunner <- NULL
   scenario$targetRunnerData <- NULL
   
-  irace_note("irace-evo: Complete cleanup finished - ready for fresh start")
+  evo_note("irace-evo: Complete cleanup finished - ready for fresh start")
 }
 
-#' Manual cleanup function for emergency cleanup
-#' 
+#' Remove the files a previous irace-evo run left in a directory
+#'
+#' Deletes the variant map, the generated sources and LLM logs, and the
+#' variant programs in `bin/` (the original program is kept).
+#'
 #' @param exec_dir Execution directory (default: current directory)
-#' @export
-clean_irace_evo_files <- function(exec_dir = ".") {
-  message("Performing emergency cleanup of irace-evo files...")
-  
-  # Create a mock scenario for cleanup
-  mock_scenario <- list(execDir = exec_dir)
-  
-  # Call the main cleanup function
-  cleanup_previous_execution(mock_scenario)
-  
-  message("Emergency cleanup completed!")
+#' @param config Code-evolution configuration file (default:
+#'   `code-evolution.json` in `exec_dir`)
+#' @keywords internal
+clean_irace_evo_files <- function(exec_dir = ".", config = file.path(exec_dir, "code-evolution.json")) {
+  if (!file.exists(config)) {
+    stop("Configuration file not found: ", config, ". Pass it as 'config'.")
+  }
+  cleanup_previous_execution(list(execDir = exec_dir, codeEvolutionConfig = config))
+  invisible(TRUE)
 }
 
 #' Show the best heuristic code from elite configurations
@@ -1296,104 +1023,23 @@ clean_irace_evo_files <- function(exec_dir = ".") {
 #' @param elite_configurations Elite configurations from current iteration
 #' @param scenario irace scenario
 show_best_heuristic <- function(elite_configurations, scenario) {
-  if (!isTRUE(scenario$codeEvolution) || nrow(elite_configurations) == 0) {
-    return()
-  }
-  
-  irace_note("DEBUG: show_best_heuristic called with ", nrow(elite_configurations), " elite configurations")
-  if (nrow(elite_configurations) > 0) {
-    irace_note("DEBUG: Elite configs variants: ", paste(elite_configurations$.VARIANT., collapse = ", "))
-    irace_note("DEBUG: Elite configs ranks: ", paste(elite_configurations$.RANK., collapse = ", "))
-  }
-  
+  if (!isTRUE(scenario$codeEvolution) || nrow(elite_configurations) == 0) return(invisible())
   tryCatch({
-    # Get the best configuration
-    best_config <- elite_configurations[1, , drop = FALSE]
-    best_variant <- best_config$.VARIANT.[1]
-    
-    irace_note("DEBUG: best_variant detected as: '", best_variant, "'")
-    
-    # Skip if it's the original algorithm
+    best_variant <- add_variant_information(elite_configurations[1, , drop = FALSE], scenario)$.VARIANT.[1]
     if (is.null(best_variant) || best_variant == "original") {
-      irace_note("Current best: Original algorithm (no heuristic modifications)")
-      return()
+      evo_note("Current best: the original code\n")
+      return(invisible())
     }
-    
-    irace_note("DEBUG: Proceeding to show variant: ", best_variant)
-    
-    # Find the source file for this variant
-    sources_dir <- file.path(scenario$execDir, "irace-evo-sources")
-    irace_note("DEBUG: Looking for sources in: ", sources_dir)
-    
-    if (!dir.exists(sources_dir)) {
-      irace_note("DEBUG: Sources directory does not exist")
-      return()
-    }
-    
-    # Look for the variant source file (using escaped regex pattern)
-    pattern <- paste0("^", gsub("([.|()\\^{}+$*?\\[\\]])", "\\\\\\1", best_variant), "\\.cpp$")
-    irace_note("DEBUG: Searching with pattern: ", pattern)
-    
-    all_source_files <- list.files(sources_dir, pattern = "\\.cpp$", full.names = TRUE)
-    irace_note("DEBUG: Available source files: ", paste(basename(all_source_files), collapse = ", "))
-    
-    source_files <- list.files(sources_dir, pattern = pattern, full.names = TRUE)
-    irace_note("DEBUG: Matching source files: ", length(source_files))
-    
-    if (length(source_files) == 0) {
-      irace_note("Source file not found for variant: ", best_variant)
-      return()
-    }
-    
-    source_file <- source_files[1]
-    
-    # Read and extract the order_chromosome function
-    if (file.exists(source_file)) {
-      source_lines <- readLines(source_file, warn = FALSE)
-      
-      # Find the order_chromosome function
-      start_line <- which(grepl("vector<pair<int, double>> order_chromosome\\(", source_lines))[1]
-      
-      if (!is.na(start_line)) {
-        # Find the end of the function by counting braces
-        brace_count <- 0
-        end_line <- start_line
-        found_opening <- FALSE
-        
-        for (i in start_line:length(source_lines)) {
-          line <- source_lines[i]
-          if (grepl("\\{", line)) {
-            brace_count <- brace_count + lengths(regmatches(line, gregexpr("\\{", line)))
-            found_opening <- TRUE
-          }
-          if (grepl("\\}", line)) {
-            brace_count <- brace_count - lengths(regmatches(line, gregexpr("\\}", line)))
-          }
-          
-          if (found_opening && brace_count == 0) {
-            end_line <- i
-            break
-          }
-        }
-        
-        # Extract and display the function
-        if (end_line > start_line) {
-          cat("\n")
-          irace_note("=== CURRENT BEST HEURISTIC (", best_variant, ") ===")
-          function_lines <- source_lines[start_line:end_line]
-          
-          # Clean up and display the function
-          for (line in function_lines) {
-            cat(line, "\n")
-          }
-          cat("=== END HEURISTIC ===\n")
-        }
-      }
-    }
-  }, error = function(e) {
-    # Silent failure - don't interrupt irace if something goes wrong
-    return()
-  })
+    source_file <- file.path(scenario$execDir, "irace-evo-sources",
+                             paste0(best_variant, source_extension(scenario)))
+    if (!file.exists(source_file)) return(invisible())
+    lines <- extract_function_from_code(readLines(source_file, warn = FALSE),
+                                        get_function_name_from_config(scenario))
+    if (is.null(lines)) return(invisible())
+    evo_note("=== CURRENT BEST FUNCTION (", best_variant, ") ===\n")
+    cat(lines, sep = "\n")
+    cat("=== END ===\n")
+  }, error = function(e) invisible())
 }
 
 #' Main entry point for code evolution in irace
@@ -1405,28 +1051,15 @@ show_best_heuristic <- function(elite_configurations, scenario) {
 #' @param scenario irace scenario
 #' @param budget_info Optional list with budget information (remaining, current) to avoid wasteful LLM calls
 #' @return Updated scenario with new code variants
-evolve_code_iteration <- function(elite_configs, iteration_stats, scenario, budget_info = NULL) {
+evolve_code_iteration <- function(elite_configs, iteration_stats, scenario,
+                                  elite_ids = integer(0), new_ids = integer(0)) {
   
   if (!is_code_evolution_enabled(scenario)) {
     return(scenario)  # Return unchanged scenario
   }
-  
-  # Check if we have enough budget to justify LLM generation
-  # Skip LLM generation if we're likely to stop soon due to budget constraints
-  # BUT ALWAYS generate variants in the first iteration
-  if (!is.null(budget_info) && iteration_stats$iteration > 1) {
-    remaining_budget <- budget_info$remaining
-    current_budget <- budget_info$current
-    min_survival <- scenario$minNbSurvival
-    
-    # If remaining budget is very low or current budget is insufficient for minimum configs
-    # Skip expensive LLM operations to avoid waste (except on first iteration)
-    if (remaining_budget <= current_budget * 0.5 || current_budget <= min_survival * 2) {
-      irace_note("irace-evo: Skipping LLM generation due to low remaining budget (",
-                 remaining_budget, " remaining, ", current_budget, " current)")
-      return(scenario)
-    }
-  }
+  # Every iteration generates variants (paper, Algorithm 1, line 5 and
+  # Sect. 4.1); an earlier rule that skipped the LLM when the remaining
+  # budget looked small is gone.
   
   # Clean up previous execution files on first iteration
   if (iteration_stats$iteration == 1) {
@@ -1451,7 +1084,7 @@ evolve_code_iteration <- function(elite_configs, iteration_stats, scenario, budg
     )
   }
   
-  irace_note("irace-evo: Generating ", scenario$codeEvolutionVariants, 
+  evo_note("irace-evo: Generating ", scenario$codeEvolutionVariants, 
              " code variants for iteration ", iteration_stats$iteration)
   
   # Generate new code variants
@@ -1461,35 +1094,6 @@ evolve_code_iteration <- function(elite_configs, iteration_stats, scenario, budg
   
   # Validate generated variants for obvious issues
   variants <- validate_variants(variants, scenario)
-  
-  # Check if we need to regenerate discarded variants
-  if (!is.null(attr(variants, "needs_regeneration")) && attr(variants, "needs_regeneration")) {
-    discarded_count <- attr(variants, "discarded_count")
-    irace_note("irace-evo: Regenerating ", discarded_count, " replacement variants...")
-    
-    tryCatch({
-      # Generate replacement variants
-      replacement_result <- generate_code_variants(elite_configs, iteration_stats, scenario, num_variants = discarded_count)
-      replacement_variants <- replacement_result$variants
-      
-      # Validate the replacement variants (but don't recursively regenerate)
-      replacement_variants <- validate_variants(replacement_variants, scenario)
-      
-      # Add the valid replacements to our variant list
-      if (length(replacement_variants) > 0) {
-        variants <- c(variants, replacement_variants)
-        llm_metrics$total_calls <- llm_metrics$total_calls + replacement_result$metrics$total_calls
-        llm_metrics$total_retries <- llm_metrics$total_retries + replacement_result$metrics$total_retries
-        llm_metrics$total_input_tokens <- llm_metrics$total_input_tokens + replacement_result$metrics$total_input_tokens
-        llm_metrics$total_output_tokens <- llm_metrics$total_output_tokens + replacement_result$metrics$total_output_tokens
-        llm_metrics$estimated_cost <- llm_metrics$estimated_cost + replacement_result$metrics$estimated_cost
-        
-        irace_note("irace-evo: Successfully generated ", length(replacement_variants), " replacement variants")
-      }
-    }, error = function(e) {
-      irace_note("irace-evo: Warning: Failed to generate replacement variants: ", e$message)
-    })
-  }
   
   # Accumulate global LLM metrics
   if (!is.null(scenario$codeEvolutionGlobalMetrics)) {
@@ -1526,21 +1130,21 @@ evolve_code_iteration <- function(elite_configs, iteration_stats, scenario, budg
     
     # Persist metrics to file for recovery in case scenario object is lost
     tryCatch({
-      saveRDS(scenario$codeEvolutionGlobalMetrics, ".irace_evo_metrics.rds")
+      saveRDS(scenario$codeEvolutionGlobalMetrics, file.path(scenario$execDir, ".irace_evo_metrics.rds"))
     }, error = function(e) {
       # Silent fail - metrics persistence is nice-to-have
     })
   }
   
   # Display metrics in irace console output
-  irace_note("irace-evo: Successfully generated ", length(variants), " variants")
-  irace_note("LLM Usage - Calls: ", llm_metrics$total_calls, 
+  evo_note("irace-evo: Successfully generated ", length(variants), " variants")
+  evo_note("LLM Usage - Calls: ", llm_metrics$total_calls, 
              ", Retries: ", llm_metrics$total_retries,
              ", Tokens: ", llm_metrics$total_input_tokens, "+", llm_metrics$total_output_tokens,
              ", Est.Cost: $", sprintf("%.3f", llm_metrics$total_cost_estimate))
   
   # Update scenario to use variants
-  scenario <- setup_variant_target_runner(variants, scenario)
+  scenario <- setup_variant_target_runner(variants, scenario, elite_ids = elite_ids, new_ids = new_ids)
   
   return(scenario)
 }
@@ -1565,7 +1169,7 @@ print_llm_metrics_summary <- function(scenario) {
   
   cat("\n")
   cat("# LLM Code Evolution Summary\n")
-  cat("# ═══════════════════════════════════════════════════════════════════\n")
+  cat("# ===================================================================\n")
   
   # LLM Configuration
   cat("# LLM Configuration:\n")
@@ -1600,7 +1204,7 @@ print_llm_metrics_summary <- function(scenario) {
     cat("# Per-Iteration Breakdown:\n")
     cat(sprintf("# %8s %8s %8s %12s %12s %8s %8s\n", 
                 "Iter", "Calls", "Retries", "Input", "Output", "Variants", "Time(s)"))
-    cat("# ─────────────────────────────────────────────────────────────────────\n")
+    cat("# ---------------------------------------------------------------------\n")
     
     for (iter_metrics in metrics$iterations) {
       llm_time_str <- if (!is.null(iter_metrics$llm_time)) sprintf("%.1f", iter_metrics$llm_time) else "N/A"
@@ -1615,7 +1219,7 @@ print_llm_metrics_summary <- function(scenario) {
     }
   }
   
-  cat("# ═══════════════════════════════════════════════════════════════════\n")
+  cat("# ===================================================================\n")
   cat("\n")
 }
 
@@ -1671,7 +1275,7 @@ update_performance_history <- function(elite_configurations, scenario) {
           updated_json <- jsonlite::toJSON(history, auto_unbox = TRUE, pretty = TRUE)
           writeLines(updated_json, history_file)
           
-          message("irace-evo: 📊 PERFORMANCE UPDATE: Racing results added to history (best: ", best_rank, ", winner: ", updated_entry$winning_strategy, ")")
+          message("irace-evo: racing results added to the history (best: ", best_rank, ", winner: ", updated_entry$winning_strategy, ")")
         }
       }
     }
@@ -1705,7 +1309,7 @@ print_winning_variant_function <- function(elite_configurations, scenario) {
   
   cat("\n")
   cat("# Winning Variant Function Analysis\n")
-  cat("# ═══════════════════════════════════════════════════════════════════\n")
+  cat("# ===================================================================\n")
   cat(sprintf("# Winner: %s (Configuration ID: %d)\n", winning_variant, best_config$.ID.))
   performance_text <- if (!is.null(best_config$.RANK.) && !is.na(best_config$.RANK.)) {
     sprintf("%.1f", as.numeric(best_config$.RANK.))
@@ -1715,9 +1319,10 @@ print_winning_variant_function <- function(elite_configurations, scenario) {
   cat(sprintf("# Performance: Rank %s\n", performance_text))
   cat("#\n")
   
-  # Try to find and display the winning function
-  source_file <- paste0("irace-evo-sources/", winning_variant, ".cpp")
-  original_file <- "./src/brkga.cpp"
+  # Find the winning function and the original one
+  source_file <- file.path(scenario$execDir, "irace-evo-sources",
+                           paste0(winning_variant, source_extension(scenario)))
+  original_file <- original_source_file(scenario)
   
   if (file.exists(source_file) && file.exists(original_file)) {
     # Read the winning variant source
@@ -1732,14 +1337,14 @@ print_winning_variant_function <- function(elite_configurations, scenario) {
       
       if (!is.null(variant_function) && !is.null(original_function)) {
         cat("# WINNING VARIANT FUNCTION:\n")
-        cat("# ───────────────────────────────────────────────────────────────────\n")
+        cat("# -------------------------------------------------------------------\n")
         for (line in variant_function) {
           cat("#", line, "\n")
         }
         cat("#\n")
         
         cat("# ORIGINAL FUNCTION (for comparison):\n") 
-        cat("# ───────────────────────────────────────────────────────────────────\n")
+        cat("# -------------------------------------------------------------------\n")
         for (line in original_function) {
           cat("#", line, "\n")
         }
@@ -1760,7 +1365,7 @@ print_winning_variant_function <- function(elite_configurations, scenario) {
     }
   }
   
-  cat("# ═══════════════════════════════════════════════════════════════════\n")
+  cat("# ===================================================================\n")
   cat("\n")
 }
 
@@ -1825,22 +1430,27 @@ extract_function_from_code <- function(code_lines, function_name) {
   })
 }
 
+#' File extension of the language being evolved
+#' @param scenario irace scenario
+source_extension <- function(scenario) {
+  language <- tryCatch(jsonlite::fromJSON(scenario$codeEvolutionConfig)$language_config$language,
+                       error = function(e) NULL)
+  switch(tolower(if (is.null(language)) "cpp" else language),
+         python = , py = ".py", java = ".java", ".cpp")
+}
+
 #' Get function name from configuration
 #'
 #' @param scenario irace scenario
-#' @return Function name string
+#' @return The name of the function the LLM may change
 get_function_name_from_config <- function(scenario) {
-  config_file <- "./code-evolution.json"
-  if (file.exists(config_file)) {
-    tryCatch({
-      config <- jsonlite::fromJSON(config_file)
-      if (!is.null(config$source_config$function_name)) {
-        return(config$source_config$function_name)
-      }
-    }, error = function(e) {
-      # Fall back to default if config reading fails
-    })
-  }
-  # Default function name
-  return("order_chromosome")
+  jsonlite::fromJSON(scenario$codeEvolutionConfig)$source_config$function_name
+}
+
+#' Path of the original source file, as given in the configuration
+#'
+#' @param scenario irace scenario
+original_source_file <- function(scenario) {
+  path <- jsonlite::fromJSON(scenario$codeEvolutionConfig)$source_config$source_file
+  if (fs::is_absolute_path(path)) path else file.path(scenario$execDir, path)
 }

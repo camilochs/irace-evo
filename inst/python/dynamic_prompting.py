@@ -12,7 +12,7 @@ import os
 import logging
 from typing import Dict, List, Any, Optional
 from pathlib import Path
-import numpy as np
+import statistics
 
 class PerformanceAnalyzer:
     """Analyzes performance gaps and patterns from iteration history"""
@@ -95,8 +95,8 @@ class PerformanceAnalyzer:
         
         # Calculate average improvement trend
         if trends:
-            trends['avg_improvement_rate'] = np.mean(list(trends.values()))
-            trends['improvement_volatility'] = np.std(list(trends.values()))
+            trends['avg_improvement_rate'] = statistics.mean(list(trends.values()))
+            trends['improvement_volatility'] = statistics.pstdev(list(trends.values()))
         
         return trends
     

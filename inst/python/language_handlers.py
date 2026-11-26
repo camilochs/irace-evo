@@ -23,7 +23,17 @@ class LanguageHandler(ABC):
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.language_config = config.get('language_config', {})
-        self.build_config = config.get('build_config', {})
+        build_config = config.get('build_config', {})
+        # The template keeps one section per language (build_config.cpp,
+        # build_config.python, ...) and says only the chosen one is used;
+        # a flat build_config is accepted as well.
+        language = self.language_config.get('language', 'cpp')
+        aliases = {'cpp': ('cpp', 'c++'), 'python': ('python', 'py'), 'py': ('python', 'py'), 'java': ('java',)}
+        for key in aliases.get(language, (language,)):
+            if isinstance(build_config.get(key), dict):
+                build_config = build_config[key]
+                break
+        self.build_config = build_config
     
     @abstractmethod
     def extract_function(self, source_code: str, function_name: str) -> str:
@@ -190,8 +200,17 @@ class CppLanguageHandler(LanguageHandler):
             os.makedirs(output_dir, exist_ok=True)
             executable_path = os.path.join(output_dir, output_name)
             
-            # Build compilation command
-            cmd = [compiler] + flags + [temp_source_path, '-o', executable_path]
+            # Build compilation command. The variant is written to a temporary
+            # file, so the original file's directory goes on the include path
+            # for its local #include "..." lines, followed by the configured
+            # include paths, library paths and libraries.
+            source_file = self.config.get('source_config', {}).get('source_file')
+            include_dirs = ([os.path.dirname(os.path.abspath(source_file))] if source_file else [])
+            include_dirs += self.build_config.get('include_paths', [])
+            cmd = ([compiler] + flags + [f"-I{d}" for d in include_dirs]
+                   + [temp_source_path, '-o', executable_path]
+                   + [f"-L{d}" for d in self.build_config.get('library_paths', [])]
+                   + [f"-l{l}" for l in self.build_config.get('libraries', [])])
             
             # Compile
             result = subprocess.run(

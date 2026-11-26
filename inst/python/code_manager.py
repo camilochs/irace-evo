@@ -75,6 +75,7 @@ class CodeEvolutionManager:
         # Initialize LLM service with language config
         llm_config = config.get('llm_config', {})
         llm_config['language'] = self.language
+        llm_config['evolution_focus_iteration'] = config.get('evolution_config', {}).get('evolution_focus_iteration', 3)
         self.llm_service = LLMService(llm_config)
         
         self.compiler = CompilationManager(config.get('build_config', {}))
@@ -131,6 +132,9 @@ class CodeEvolutionManager:
             List of successfully compiled variant dictionaries
         """
         target_variants = context.get('target_variants', 5)
+        # Programs are named after the iteration, so a later iteration never
+        # writes over a program that configurations of an earlier one run.
+        self.iteration = context.get('iteration_context', {}).get('current_iteration', 1)
         successful_variants = []
         total_attempts = 0
         max_total_attempts = target_variants * 3  # Allow some failures
@@ -175,19 +179,13 @@ class CodeEvolutionManager:
             
             self.logger.info(f"ELITE PRESERVATION: Preserving best variant {best_variant.variant_id}")
             
-            # Add the elite variant directly to successful variants (no regeneration)
-            elite_dict = {
-                'code': best_variant.code,
-                'variant_id': best_variant.variant_id,  # Keep original ID for tracking
-                'parent': best_variant.parent_id,
-                'strategy': 'elite_preserved',
-                'fingerprint': best_variant.fingerprint,
-                'executable': None,  # Will be set during processing in R
-                'compilation_success': True,  # Assume preserved variants were successfully compiled
-                'generation_strategy': 'elite_preserved'
-            }
-            successful_variants.append(elite_dict)
-            self.logger.info(f"Elite variant preserved: {elite_dict['variant_id']}")
+            # Compile it again under its own name, with the build settings of
+            # the configured language, and race it as a variant.
+            preserved = CodeVariant(code=best_variant.code, variant_id=f"elite_{best_variant.variant_id}",
+                                    parent_id=best_variant.parent_id, strategy='elite_preserved')
+            if self._compile_variant(preserved):
+                successful_variants.append(preserved.to_dict())
+                self.logger.info(f"Elite variant preserved: {best_variant.variant_id}")
             
             # Remove the preserved variant from the evolution pool
             elite_variants = [v for v in elite_variants if v.variant_id != best_variant.variant_id]
@@ -233,12 +231,12 @@ class CodeEvolutionManager:
             self.logger.info(f"Completed attempt {total_attempts}. Moving to next...")
             self.logger.info("=" * 50)
         
-        # Fallback: if too few successful variants, use conservative variants
-        if len(successful_variants) < max(1, target_variants // 2):
-            fallback_variants = self._generate_fallback_variants(
-                elite_variants, target_variants - len(successful_variants)
-            )
-            successful_variants.extend(fallback_variants)
+        # Fewer variants than asked is allowed: Algorithm 1 races the ones that
+        # compiled, with the surviving variants and the original. (Copies of the
+        # original used to fill the gap here; they only repeated A0 under a
+        # variant's name.)
+        if len(successful_variants) < target_variants:
+            self.logger.warning(f"Only {len(successful_variants)} of {target_variants} variants compiled")
         
         # Get LLM metrics
         llm_metrics = self.llm_service.get_metrics()
@@ -447,26 +445,26 @@ class CodeEvolutionManager:
         """Generate a single code variant using LLM"""
         self.logger.info(f"Starting _generate_single_variant for attempt {attempt}")
         
-        # Select base variant (parent)
-        self.logger.info(f"Selecting base variant from {len(elite_variants)} elite variants...")
-        base_variant = elite_variants[attempt % len(elite_variants)]
-        self.logger.info(f"Selected base variant: {base_variant.variant_id}")
+        # Always-From-Original (paper, Sect. 2.3): every variant is generated
+        # from the original code A0, never from an earlier variant. Earlier
+        # variants reach the prompt only in the diversity section.
+        base_variant = self._load_original_source()
         
         # Get function name (always needed)
         function_name = self.config['source_config']['function_name']
         
-        # Determine if this is the first variant generation or a retry
-        is_first_variant = (attempt == 0)
-        
-        if is_first_variant:
-            # First variant: Give LLM the complete source code for full context
-            self.logger.info("First variant: Using complete source code for maximum context")
+        # Code context window R_i (paper, Sect. 2.4): the whole source file in
+        # iteration 1, selected fragments from iteration 2 on. Every call is
+        # independent, so each call of iteration 1 carries the whole file.
+        current_iteration = context.get('iteration_context', {}).get('current_iteration', 1)
+        if current_iteration <= 1:
+            self.logger.info("Iteration 1: using the complete source code as context")
             original_function = base_variant.code  # Full code
             context_code = "// Complete source code provided above"
             full_context_mode = True
         else:
-            # Subsequent variants: Extract only the specific function  
-            self.logger.info("Subsequent variant: Using function-only approach for efficiency")
+            # Later iterations: the function and selected fragments of the file
+            self.logger.info("Later iteration: using the function and selected fragments")
             self.logger.info(f"Extracting function '{function_name}' from source code...")
             original_function = self._extract_function(base_variant.code, function_name)
             self.logger.info(f"Extracted function. Length: {len(original_function)} chars")
@@ -604,7 +602,7 @@ class CodeEvolutionManager:
             # Use language handler for compilation
             executable_path = self.language_handler.compile_and_test(
                 variant.code,
-                output_name=f"algorithm_{variant.variant_id}"
+                output_name=f"algorithm_{variant.variant_id}_iter{getattr(self, 'iteration', 1)}"
             )
             
             variant.executable_path = executable_path
@@ -680,7 +678,8 @@ class CodeEvolutionManager:
                     
                     # Replace function in the variant's source code
                     function_name = self.config['source_config']['function_name']
-                    base_variant = elite_variants[0] if elite_variants else variant
+                    # The corrected function goes back into the original code (AFO).
+                    base_variant = self._load_original_source()
                     corrected_source = self._replace_function(
                         base_variant.code, function_name, corrected_function
                     )
@@ -723,29 +722,3 @@ class CodeEvolutionManager:
         })
         
         return correction_context
-    
-    def _generate_fallback_variants(self, elite_variants: List[CodeVariant], 
-                                   needed: int) -> List[Dict[str, Any]]:
-        """Generate conservative fallback variants when main generation fails"""
-        fallback_variants = []
-        
-        # Use original source with minimal modifications
-        if elite_variants:
-            base = elite_variants[0]  # Use original source
-            
-            for i in range(needed):
-                # Create minimal variation (e.g., different variable names)
-                variant = CodeVariant(
-                    code=base.code,  # For now, just use original
-                    variant_id=f"fallback_{i:02d}",
-                    parent_id=base.variant_id,
-                    strategy="fallback"
-                )
-                
-                if self._compile_variant(variant):
-                    fallback_variants.append(variant.to_dict())
-                
-                if len(fallback_variants) >= needed:
-                    break
-        
-        return fallback_variants

@@ -385,6 +385,22 @@ Provide ONLY the Java method implementation, no explanations.
         ]
 
 
+STANDARD_FOCUS = ("STANDARD - general algorithm improvement by moderate changes "
+                  "that preserve the overall logic of the function")
+AGGRESSIVE_FOCUS = ("AGGRESSIVE - a more aggressive exploration: broader structural "
+                    "changes to the function")
+
+
+# Models that refused temperature/top_p in this session. A new LLMService is
+# made every iteration; the module lives as long as the R session.
+_SAMPLING_REFUSED = set()
+
+
+def evolution_focus(iteration: int, ef: int) -> str:
+    """The evolution focus E_i of the paper: std before iteration ef, aggressive from it."""
+    return AGGRESSIVE_FOCUS if iteration >= ef else STANDARD_FOCUS
+
+
 class LLMService:
     """Service for interacting with LLMs for multi-language code generation"""
     
@@ -413,6 +429,10 @@ class LLMService:
         else:
             self.temperature = config.get('temperature', 0.2)
         self.max_tokens = config.get('max_tokens', 1500)
+        # top_p is the second LLM hyperparameter of the paper (Phi); it is sent
+        # only when configured, since some models refuse it next to temperature.
+        self.top_p = config.get('top_p')
+        self.evolution_focus_iteration = int(config.get('evolution_focus_iteration', 3))
         
         # Dynamic prompting configuration
         self.use_dynamic_prompting = config.get('use_dynamic_prompting', True)
@@ -757,22 +777,14 @@ Return ONLY the corrected function code, nothing else:"""
         else:
             variants_info = "- (No previous variants in this session)"
         
-        # Determine improvement intensity based on performance metrics
-        needs_aggressive = data.get('improvement_guidance', {}).get('needs_aggressive_changes', False)
-        ranking_pressure_raw = data.get('improvement_guidance', {}).get('ranking_pressure', 0.5)
-        
-        # Ensure ranking_pressure is numeric
-        try:
-            ranking_pressure = float(ranking_pressure_raw) if ranking_pressure_raw is not None else 0.5
-        except (ValueError, TypeError):
-            ranking_pressure = 0.5
-        
-        if needs_aggressive or ranking_pressure > 0.7:
-            improvement_intensity = "HIGH - Consider major algorithmic changes"
-        elif ranking_pressure > 0.4:
-            improvement_intensity = "MEDIUM - Moderate improvements needed"
-        else:
-            improvement_intensity = "LOW - Fine-tuning and conservative changes"
+        # Evolution focus E_i (paper, Sect. 2.4): "std" (moderate changes that
+        # keep the overall logic) before iteration ef, "aggressive" (broader
+        # structural changes) from iteration ef on. ef is
+        # evolution_config.evolution_focus_iteration (default 3, the paper's
+        # example).
+        current_iteration = data['iteration_context'].get('current_iteration', 1)
+        improvement_intensity = evolution_focus(current_iteration, self.evolution_focus_iteration)
+        ranking_pressure = data.get('improvement_guidance', {}).get('ranking_pressure', 0.5)
         
         # Extract problem context information
         problem_context = data.get('problem_context', {})
@@ -881,6 +893,26 @@ Your task is to improve ONLY the `{function_name}` function within this complete
         else:
             raise ValueError(f"Unsupported provider: {self.api_provider}")
     
+    def _with_sampling(self, call, sampling: Dict[str, Any]):
+        """Make the call with the sampling parameters (temperature, top_p).
+
+        Some models refuse them (reasoning models, recent Claude models). The
+        call is then made again without them, and a warning says once that
+        the configured values are not applied with this model."""
+        if self.model in _SAMPLING_REFUSED or not sampling:
+            return call(None)
+        try:
+            return call(sampling)
+        except Exception as e:
+            text = str(e).lower()
+            if not any(k in text for k in ("temperature", "top_p", "top-p", "sampling")):
+                raise
+            _SAMPLING_REFUSED.add(self.model)
+            self.logger.warning(f"The model {self.model} refuses {sorted(sampling)}; "
+                                f"calling it without them, so the configured values are not applied ({e})")
+            print(f"[irace-evo] WARNING: {self.model} does not accept {sorted(sampling)}; they are not applied.")
+            return call(None)
+
     def _call_openai(self, prompt: str, attempt: int) -> tuple:
         """Call OpenAI API"""
         try:
@@ -893,9 +925,13 @@ Your task is to improve ONLY the `{function_name}` function within this complete
                     {"role": "system", "content": OPTIMIZATION_SYSTEM_PROMPT},
                     {"role": "user", "content": prompt}
                 ],
-                "temperature": self.temperature + (attempt * 0.1),  # Increase temperature for retries
+                # Phi (paper, Sect. 2.3): the configured temperature and top_p,
+                # the same on every attempt.
+                "temperature": self.temperature,
                 "timeout": self.timeout
             }
+            if self.top_p is not None:
+                api_params["top_p"] = self.top_p
             
             # Use the correct token parameter depending on model
             # Newer models (like gpt-4o, gpt-4-turbo, o1-mini) use max_completion_tokens
@@ -909,7 +945,9 @@ Your task is to improve ONLY the `{function_name}` function within this complete
             # Removing stop parameter to see if it's causing issues
             # api_params["stop"] = ["```"]
             
-            response = self.client.chat.completions.create(**api_params)
+            sampling = {k: api_params.pop(k) for k in ("temperature", "top_p") if k in api_params}
+            response = self._with_sampling(
+                lambda extra: self.client.chat.completions.create(**api_params, extra_body=extra), sampling)
             
             # Extract tokens and calculate cost
             usage = response.usage
@@ -937,13 +975,20 @@ Your task is to improve ONLY the `{function_name}` function within this complete
     def _call_anthropic(self, prompt: str, attempt: int) -> tuple:
         """Call Anthropic Claude API"""
         try:
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=1500,
-                temperature=0.7 + (attempt * 0.1),
-                system=OPTIMIZATION_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": prompt}]
-            )
+            # Phi (paper, Sect. 2.3): the configured temperature and top_p.
+            # Recent versions of the anthropic package no longer take them as
+            # arguments, so they travel in the request body.
+            api_params = {
+                "model": self.model,
+                "max_tokens": self.max_tokens,
+                "system": OPTIMIZATION_SYSTEM_PROMPT,
+                "messages": [{"role": "user", "content": prompt}],
+            }
+            sampling = {"temperature": self.temperature}
+            if self.top_p is not None:
+                sampling["top_p"] = self.top_p
+            response = self._with_sampling(
+                lambda extra: self.client.messages.create(**api_params, extra_body=extra), sampling)
             
             # Extract tokens and calculate cost
             usage = response.usage
