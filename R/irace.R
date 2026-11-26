@@ -628,10 +628,10 @@ irace_common <- function(scenario, simple, output.width = 9999L)
     if (isTRUE(scenario$codeEvolution)) {
       # Ensure variant map is available for printing
       if (is.null(scenario$codeEvolutionVariantMap)) {
-        csv_file <- ".irace_evo_variants.csv"
+        csv_file <- file.path(scenario$execDir, ".irace_evo_variants.csv")
         if (file.exists(csv_file)) {
           tryCatch({
-            variant_map <- read.csv(csv_file, stringsAsFactors = FALSE)
+            variant_map <- utils::read.csv(csv_file, stringsAsFactors = FALSE)
             if (nrow(variant_map) > 0 && "config_id" %in% colnames(variant_map) && 
                 "variant_id" %in% colnames(variant_map)) {
               scenario$codeEvolutionVariantMap <- variant_map
@@ -667,8 +667,9 @@ irace_common <- function(scenario, simple, output.width = 9999L)
       } else {
         # Try to recover metrics from persistence file
         recovered_metrics <- tryCatch({
-          if (file.exists(".irace_evo_metrics.rds")) {
-            readRDS(".irace_evo_metrics.rds")
+          metrics_file <- file.path(scenario$execDir, ".irace_evo_metrics.rds")
+          if (file.exists(metrics_file)) {
+            readRDS(metrics_file)
           } else NULL
         }, error = function(e) NULL)
         
@@ -677,15 +678,15 @@ irace_common <- function(scenario, simple, output.width = 9999L)
           print_llm_metrics_summary(scenario)
         } else {
           # Try to reconstruct basic info from log or variant files
-          variant_files <- list.files("irace-evo-sources", pattern = "variant_.*\\.cpp", full.names = FALSE)
+          variant_files <- list.files(file.path(scenario$execDir, "irace-evo-sources"), pattern = "^variant_", full.names = FALSE)
           if (length(variant_files) > 0) {
             cat("\n# LLM Code Evolution Summary\n")
-            cat("# ═══════════════════════════════════════════════════════════════════\n")
+            cat("# ===================================================================\n")
             cat("# Code evolution was used but detailed metrics were not preserved.\n")
             cat(sprintf("# Generated variant source files: %d\n", length(variant_files)))
-            if (file.exists(".irace_evo_variants.csv")) {
+            if (file.exists(file.path(scenario$execDir, ".irace_evo_variants.csv"))) {
             variant_map <- tryCatch({
-              read.csv(".irace_evo_variants.csv", stringsAsFactors = FALSE)
+              utils::read.csv(file.path(scenario$execDir, ".irace_evo_variants.csv"), stringsAsFactors = FALSE)
             }, error = function(e) NULL)
             if (!is.null(variant_map) && nrow(variant_map) > 0) {
               unique_variants <- length(unique(variant_map$variant_id))
@@ -694,7 +695,7 @@ irace_common <- function(scenario, simple, output.width = 9999L)
               cat(sprintf("# Total configuration mappings: %d\n", total_configs))
             }
             }
-            cat("# ═══════════════════════════════════════════════════════════════════\n\n")
+            cat("# ===================================================================\n\n")
           } else {
             cat("\n# LLM Code Evolution Summary: No LLM calls were made during this run\n")
             cat("# (Code evolution may have been skipped due to budget constraints)\n\n")
@@ -1264,17 +1265,16 @@ irace_run <- function(scenario)
       
       iteration_stats <- list(
         iteration = indexIteration,
-        experiments_used = experimentsUsed,  # Use current experiments count
+        nb_iterations = nbIterations,
+        experiments_used = experimentsUsed,
         elite_configurations = current_elites
       )
-      
-      budget_info <- list(
-        remaining = remainingBudget,
-        current = currentBudget
-      )
-      
-      # Generate variants for this iteration BEFORE the race
-      scenario <- evolve_code_iteration(current_elites, iteration_stats, scenario, budget_info)
+      # The elites keep the code they were paired with; the configurations
+      # sampled for this race are paired with a variant now.
+      elite_ids <- if (nrow(elite_configurations)) elite_configurations[[".ID."]] else integer(0)
+      new_ids <- setdiff(raceConfigurations[[".ID."]], elite_ids)
+      scenario <- evolve_code_iteration(current_elites, iteration_stats, scenario,
+                                        elite_ids = elite_ids, new_ids = new_ids)
     }
 
     if (debugLevel >= 1L) irace_note("Launch race\n")

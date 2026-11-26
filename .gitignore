@@ -80,3 +80,4 @@ _snaps
 ..Rcheck/
 .claude/
 .vscode/
+__pycache__/
