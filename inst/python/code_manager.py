@@ -237,6 +237,13 @@ class CodeEvolutionManager:
         # variant's name.)
         if len(successful_variants) < target_variants:
             self.logger.warning(f"Only {len(successful_variants)} of {target_variants} variants compiled")
+        # If no call got an answer, the provider is failing (a revoked key, a
+        # retired model, an API that changed): stop and say why, instead of
+        # racing the original alone for the rest of the budget.
+        m = self.llm_service.metrics
+        if not successful_variants and m.get('answered_calls', 0) == 0 and m.get('failed_calls', 0) > 0:
+            raise RuntimeError("every call to the LLM failed; the last error was: "
+                               + str(getattr(self.llm_service, 'last_error', 'unknown')))
         
         # Get LLM metrics
         llm_metrics = self.llm_service.get_metrics()

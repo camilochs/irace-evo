@@ -17,6 +17,43 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 
 
+def find_braced_definition(source: str, name: str):
+    """Start and end offsets of the definition of `name` in C-like source
+    (C++, Java): the first `name(` whose matching `)` is followed by `{`
+    before any `;`, so calls and declarations are skipped. The signature may
+    span lines, with the return type on a line of its own; the definition
+    ends at the brace that closes the body. Comment lines just above it are
+    not part of it."""
+    for m in re.finditer(rf"\b{re.escape(name)}\s*\(", source):
+        depth, j = 0, m.end() - 1
+        while j < len(source):
+            depth += {"(": 1, ")": -1}.get(source[j], 0)
+            if depth == 0:
+                break
+            j += 1
+        brace = source.find("{", j)
+        if brace < 0 or any(c in source[j + 1:brace] for c in ";}="):
+            continue
+        depth, k = 0, brace
+        while k < len(source):
+            depth += {"{": 1, "}": -1}.get(source[k], 0)
+            k += 1
+            if depth == 0:
+                break
+        if depth:
+            raise ValueError(f"Unmatched braces in the definition of {name}")
+        start = source.rfind("\n", 0, m.start()) + 1
+        while start > 0:
+            prev_start = source.rfind("\n", 0, start - 1) + 1
+            prev = source[prev_start:start - 1].strip()
+            if (not prev or prev.endswith((";", "}", "{", "*/")) or prev.startswith(("//", "/*", "*", "#", "@"))):
+                break
+            start = prev_start
+        return start, k
+    raise ValueError(f"No definition of {name} found")
+
+
+
 class LanguageHandler(ABC):
     """Abstract base class for language-specific handlers"""
     
@@ -60,127 +97,14 @@ class CppLanguageHandler(LanguageHandler):
     """Handler for C++ language"""
     
     def extract_function(self, source_code: str, function_name: str) -> str:
-        """Extract C++ function from source code"""
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.info(f"Extracting C++ function '{function_name}' from source code")
-        
-        # Simplified approach: use brace counting instead of complex regex
-        # First find the function signature - handle complex return types like "set<int>"
-        # Look for the actual line with function declaration
-        lines = source_code.split('\n')
-        function_line_idx = -1
-        for i, line in enumerate(lines):
-            if re.search(rf'\b{re.escape(function_name)}\s*\([^)]*\)\s*\{{', line):
-                function_line_idx = i
-                break
-        
-        if function_line_idx == -1:
-            logger.error(f"Function '{function_name}' not found in source code")
-            raise ValueError(f"Function {function_name} not found in C++ source code")
-        
-        # Find where the function starts in the original source
-        function_line = lines[function_line_idx]
-        function_start = source_code.find(function_line)
-        logger.info(f"Found function at line {function_line_idx}: {function_line.strip()}")
-        # Find the opening brace position in the function line
-        brace_pos = source_code.find('{', function_start)
-        if brace_pos == -1:
-            logger.error(f"Opening brace not found for function '{function_name}'")
-            raise ValueError(f"Opening brace not found for function {function_name}")
-        
-        logger.info(f"Found opening brace at position {brace_pos}")
-        
-        # Start counting from after the opening brace
-        brace_count = 1
-        current_pos = brace_pos + 1
-        start_pos = function_start
-        
-        logger.info("Starting brace counting to find function end...")
-        while current_pos < len(source_code) and brace_count > 0:
-            char = source_code[current_pos]
-            if char == '{':
-                brace_count += 1
-            elif char == '}':
-                brace_count -= 1
-            current_pos += 1
-        
-        if brace_count == 0:
-            function_code = source_code[start_pos:current_pos]
-            logger.info(f"Successfully extracted function. Length: {len(function_code)} chars")
-            
-            # Show the complete extracted function for debugging
-            lines = function_code.split('\n')
-            logger.info("Extracted function preview:")
-            for i, line in enumerate(lines):
-                logger.info(f"  {i+1}: {line}")
-                
-            return function_code
-        else:
-            logger.error("Unmatched braces in function extraction")
-            raise ValueError(f"Unmatched braces while extracting function {function_name}")
-            
-        raise ValueError(f"Function {function_name} not found in C++ source code")
+        """The definition of a C++ function, found by matching braces"""
+        start, end = find_braced_definition(source_code, function_name)
+        return source_code[start:end]
     
     def replace_function(self, source_code: str, function_name: str, new_function: str) -> str:
-        """Replace C++ function with new implementation"""
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.info(f"Replacing C++ function '{function_name}' with new implementation")
-        
-        # Use the same approach as extract_function
-        # Look for the actual line with function declaration
-        lines = source_code.split('\n')
-        function_line_idx = -1
-        for i, line in enumerate(lines):
-            if re.search(rf'\b{re.escape(function_name)}\s*\([^)]*\)\s*\{{', line):
-                function_line_idx = i
-                break
-        
-        if function_line_idx == -1:
-            logger.error(f"Function '{function_name}' not found for replacement")
-            raise ValueError(f"Function {function_name} not found for replacement in C++ code")
-        
-        # Find where the function starts in the original source
-        function_line = lines[function_line_idx]
-        function_start = source_code.find(function_line)
-        logger.info(f"Found function to replace at line {function_line_idx}: {function_line.strip()}")
-        
-        # Find the opening brace position
-        brace_pos = source_code.find('{', function_start)
-        if brace_pos == -1:
-            logger.error(f"Opening brace not found for function '{function_name}'")
-            raise ValueError(f"Opening brace not found for function {function_name}")
-        
-        logger.info(f"Found opening brace at position {brace_pos}")
-        
-        # Start counting from after the opening brace
-        brace_count = 1
-        current_pos = brace_pos + 1
-        start_pos = function_start
-        
-        logger.info("Counting braces to find function end for replacement...")
-        while current_pos < len(source_code) and brace_count > 0:
-            char = source_code[current_pos]
-            if char == '{':
-                brace_count += 1
-            elif char == '}':
-                brace_count -= 1
-            current_pos += 1
-        
-        if brace_count == 0:
-            # Replace the old function with the new one
-            before_function = source_code[:start_pos]
-            after_function = source_code[current_pos:]
-            new_source_code = before_function + new_function + after_function
-            
-            logger.info(f"Function replacement completed. Old length: {len(source_code)}, New length: {len(new_source_code)}")
-            return new_source_code
-        else:
-            logger.error("Unmatched braces in function replacement")
-            raise ValueError(f"Unmatched braces while replacing function {function_name}")
-        
-        raise ValueError(f"Function {function_name} not found for replacement in C++ code")
+        """Put new_function in place of the definition of function_name"""
+        start, end = find_braced_definition(source_code, function_name)
+        return source_code[:start] + new_function.strip() + source_code[end:]
     
     def compile_and_test(self, source_code: str, output_name: str = "program") -> str:
         """Compile C++ source code"""
@@ -323,7 +247,7 @@ class PythonLanguageHandler(LanguageHandler):
         os.makedirs(output_dir, exist_ok=True)
         
         # Save as Python file
-        python_file = os.path.join(output_dir, f"{output_name}.py")
+        python_file = os.path.abspath(os.path.join(output_dir, f"{output_name}.py"))
         with open(python_file, 'w') as f:
             f.write(source_code)
         
@@ -354,93 +278,46 @@ class PythonLanguageHandler(LanguageHandler):
 
 
 class JavaLanguageHandler(LanguageHandler):
-    """Handler for Java language"""
+    """Handler for Java: the method is found by matching braces, and each
+    variant is compiled into a directory of its own (Java needs the file to
+    be named after its public class, which is the source file's name)."""
     
     def extract_function(self, source_code: str, function_name: str) -> str:
-        """Extract Java method from source code"""
-        # Pattern for Java method
-        pattern = rf'((?:public|private|protected)?\s*(?:static)?\s*\w+\s+{re.escape(function_name)}\s*\([^)]*\)\s*\{{[^}}]*\}})'
-        match = re.search(pattern, source_code, re.MULTILINE | re.DOTALL)
-        
-        if match:
-            return match.group(1)
-        
-        raise ValueError(f"Method {function_name} not found in Java source code")
+        start, end = find_braced_definition(source_code, function_name)
+        return source_code[start:end]
     
     def replace_function(self, source_code: str, function_name: str, new_function: str) -> str:
-        """Replace Java method with new implementation"""
-        pattern = rf'((?:public|private|protected)?\s*(?:static)?\s*\w+\s+{re.escape(function_name)}\s*\([^)]*\)\s*\{{[^}}]*\}})'
-        
-        if re.search(pattern, source_code, re.MULTILINE | re.DOTALL):
-            return re.sub(pattern, new_function, source_code, count=1, flags=re.MULTILINE | re.DOTALL)
-        
-        raise ValueError(f"Method {function_name} not found for replacement in Java code")
+        start, end = find_braced_definition(source_code, function_name)
+        return source_code[:start] + new_function.strip() + source_code[end:]
     
     def compile_and_test(self, source_code: str, output_name: str = "Program") -> str:
-        """Compile Java source code"""
-        # Get compilation settings
+        """Compile into <output_dir>/<output_name>/ and return a script that runs it"""
         javac = self.build_config.get('compiler', 'javac')
-        java_flags = self.build_config.get('flags', ['-cp', '.'])
-        timeout = self.build_config.get('compile_timeout', 30)
-        
-        # Create temporary source file
-        java_filename = f"{output_name}.java"
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.java', delete=False) as temp_source:
-            temp_source.write(source_code)
-            temp_source_path = temp_source.name
-        
-        try:
-            # Compile Java source
-            cmd = [javac] + java_flags + [temp_source_path]
-            
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout
-            )
-            
-            if result.returncode != 0:
-                raise RuntimeError(f"Java compilation failed: {result.stderr}")
-            
-            # Create output directory and move compiled class
-            output_dir = self.build_config.get('output_dir', './bin')
-            os.makedirs(output_dir, exist_ok=True)
-            
-            # Create wrapper script to run Java program
-            wrapper_script = os.path.join(output_dir, output_name)
-            class_file = temp_source_path.replace('.java', '.class')
-            
-            with open(wrapper_script, 'w') as f:
-                f.write(f"""#!/bin/bash
-java -cp "{os.path.dirname(class_file)}" "{output_name}" "$@"
-""")
-            
-            # Make wrapper executable
-            os.chmod(wrapper_script, 0o755)
-            
-            return wrapper_script
-            
-        finally:
-            # Clean up temporary files
-            if os.path.exists(temp_source_path):
-                os.unlink(temp_source_path)
+        flags = self.build_config.get('flags', [])
+        timeout = self.build_config.get('compile_timeout', 45)
+        source_file = self.config.get('source_config', {}).get('source_file', 'Program.java')
+        class_name = os.path.splitext(os.path.basename(source_file))[0]
+        output_dir = os.path.abspath(self.build_config.get('output_dir', './bin'))
+        class_dir = os.path.join(output_dir, output_name + ".classes")
+        os.makedirs(class_dir, exist_ok=True)
+        java_file = os.path.join(class_dir, class_name + ".java")
+        with open(java_file, 'w') as f:
+            f.write(source_code)
+        result = subprocess.run([javac] + flags + ['-d', class_dir, java_file],
+                                capture_output=True, text=True, timeout=timeout)
+        if result.returncode != 0:
+            raise RuntimeError(f"Java compilation failed: {result.stderr}")
+        wrapper_script = os.path.join(output_dir, output_name)
+        with open(wrapper_script, 'w') as f:
+            f.write(f'#!/bin/bash\nexec java -cp "{class_dir}" {class_name} "$@"\n')
+        os.chmod(wrapper_script, 0o755)
+        return wrapper_script
     
     def validate_syntax(self, code: str) -> bool:
-        """Basic Java syntax validation"""
-        if not code:
+        """Balanced braces and something that looks like a method"""
+        if not code or code.count('{') != code.count('}'):
             return False
-        
-        # Check balanced braces
-        brace_count = code.count('{') - code.count('}')
-        if brace_count != 0:
-            return False
-        
-        # Check for basic method structure
-        if not re.search(r'(?:public|private|protected)?\s*(?:static)?\s*\w+\s+\w+\s*\([^)]*\)\s*\{', code):
-            return False
-        
-        return True
+        return bool(re.search(r'\w+\s*\([^;{]*\)[^;{]*\{', code))
 
 
 class LanguageHandlerFactory:

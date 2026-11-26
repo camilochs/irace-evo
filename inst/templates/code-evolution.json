@@ -1,32 +1,34 @@
 {
   "_comment": "irace-evo configuration: what the LLM may change, how to build it, which model to ask, and how to test a variant. Paths are relative to irace's execDir. Every option here is read by irace-evo; see examples/tsp-ga-evolution/code-evolution.json for a filled-in file.",
-
   "problem_context": {
     "comment": "J in the paper: the problem and the algorithm, in words. It goes into every prompt; the clearer it is, the better the variants.",
     "problem_name": "Name of the optimization problem",
     "problem_description": "What an instance is and what a solution is",
     "algorithm_approach": "The algorithm being tuned, in one sentence",
     "optimization_objective": "What is minimised or maximised",
-    "key_challenges": ["What makes the function hard to get right"],
+    "key_challenges": [
+      "What makes the function hard to get right"
+    ],
     "performance_considerations": "How often the function is called, what it must not cost",
     "domain_knowledge": "Heuristics or facts about the problem the LLM can use"
   },
-
   "language_config": {
     "language": "cpp",
     "comment": "cpp, python or java."
   },
-
   "source_config": {
     "source_file": "./src/algorithm.cpp",
     "function_name": "function_to_evolve",
     "comment": "The one function of source_file the LLM may rewrite. Variants keep its signature. The executable of the original must be bin/<source_file without extension>, which is what the target runner runs for configurations not paired with a variant."
   },
-
   "build_config": {
     "cpp": {
       "compiler": "g++",
-      "flags": ["-O3", "-std=c++17", "-Wall"],
+      "flags": [
+        "-O3",
+        "-std=c++17",
+        "-Wall"
+      ],
       "include_paths": [],
       "library_paths": [],
       "libraries": [],
@@ -44,7 +46,6 @@
     },
     "comment": "Only the section of the chosen language is used. A variant is compiled from a temporary copy of source_file; the directory of source_file is always on the C++ include path."
   },
-
   "llm_config": {
     "api_provider": "anthropic",
     "model": "claude-haiku-5-5",
@@ -54,21 +55,24 @@
     "max_tokens": 2000,
     "max_retries": 3,
     "timeout": 60,
-    "comment": "api_provider: anthropic or openai. Leave api_key empty and export ANTHROPIC_API_KEY or OPENAI_API_KEY. temperature and top_p are Phi in the paper (its experiments used 1.0 and 0.9); top_p is sent only when present, and a model that refuses them is called without them, with a warning. max_retries is per variant. Optional: prompt_template (path to a file replacing the built-in prompt), temperature_range {enabled, min, max} (a random temperature per iteration), use_dynamic_prompting and elite_preservation (both off by default; neither is part of the method in the paper)."
+    "comment": "api_provider: anthropic or openai. Leave api_key empty and export ANTHROPIC_API_KEY or OPENAI_API_KEY. temperature and top_p are Phi in the paper (its experiments used 1.0 and 0.9); top_p is sent only when present, and a model that refuses them is called without them, with a warning. max_retries is per variant. Optional: prompt_template (path to a file replacing the built-in prompt), temperature_range {enabled, min, max} (a random temperature per iteration), use_dynamic_prompting and elite_preservation (both off by default; neither is part of the method in the paper). extra_body: an object of request fields sent as they are, for options a provider adds later (they go through the same refusal handling)."
   },
-
   "evolution_config": {
     "evolution_focus_iteration": 3,
-    "available_strategies": ["innovate_heuristic_design"],
+    "available_strategies": [
+      "innovate_heuristic_design"
+    ],
     "intelligent_error_correction": true,
     "max_error_correction_attempts": 2,
     "custom_strategies": [],
     "comment": "evolution_focus_iteration is ef in the paper: before that iteration the prompts ask for moderate changes that keep the function's logic, from it on for broader structural changes. available_strategies are taken in turn, one per variant; built in: improve_efficiency, add_randomization, modify_logic, innovate_heuristic_design, conservative_improvement, hybrid_approach, problem_specific. A variant that does not compile is sent back to the LLM with the compiler error up to max_error_correction_attempts times. custom_strategies: [{name, description, ...}] adds your own."
   },
-
   "validation_config": {
     "basic_functionality_test": true,
-    "test_arguments": ["-i", "./instances/small-instance.txt"],
+    "test_arguments": [
+      "-i",
+      "./instances/small-instance.txt"
+    ],
     "test_timeout": 10,
     "expected_output_pattern": "^-?[0-9]+(\\.[0-9]+)?$",
     "comment": "Each variant that compiles runs once as: <variant> test_arguments, in execDir. It races only if it exits with status 0 within test_timeout seconds and a line of its output matches expected_output_pattern. Without test_arguments, compiling is the only check."

@@ -391,9 +391,9 @@ AGGRESSIVE_FOCUS = ("AGGRESSIVE - a more aggressive exploration: broader structu
                     "changes to the function")
 
 
-# Models that refused temperature/top_p in this session. A new LLMService is
-# made every iteration; the module lives as long as the R session.
-_SAMPLING_REFUSED = set()
+# Extra request fields each model refused in this session. A new LLMService
+# is made every iteration; the module lives as long as the R session.
+_SAMPLING_REFUSED: Dict[str, set] = {}
 
 
 def evolution_focus(iteration: int, ef: int) -> str:
@@ -462,6 +462,7 @@ class LLMService:
         self.metrics = {
             'total_calls': 0,
             'successful_calls': 0,
+            'answered_calls': 0,
             'failed_calls': 0,
             'total_retries': 0,
             'total_input_tokens': 0,
@@ -562,6 +563,7 @@ class LLMService:
                     self._log_llm_input(call_id, prompt, attempt, prompt_data)
                 
                 response, tokens_used, cost_estimate = self._call_llm(prompt, attempt)
+                self.metrics['answered_calls'] += 1
                 
                 # Log detailed output
                 if self.log_interactions and hasattr(self, 'detailed_logger'):
@@ -591,6 +593,7 @@ class LLMService:
                     
             except Exception as e:
                 self.metrics['failed_calls'] += 1
+                self.last_error = str(e)
                 self.logger.error(f"LLM call failed on attempt {attempt + 1}: {e}")
                 if self.log_interactions and hasattr(self, 'detailed_logger'):
                     self.detailed_logger.error(f"{call_id} - API call failed: {str(e)}")
@@ -663,6 +666,7 @@ class LLMService:
                     
             except Exception as e:
                 self.metrics['failed_calls'] += 1
+                self.last_error = str(e)
                 self.logger.error(f"Error correction call failed on attempt {attempt + 1}: {e}")
                 if self.log_interactions and hasattr(self, 'detailed_logger'):
                     self.detailed_logger.error(f"{call_id} - Error correction API call failed: {str(e)}")
@@ -893,121 +897,131 @@ Your task is to improve ONLY the `{function_name}` function within this complete
         else:
             raise ValueError(f"Unsupported provider: {self.api_provider}")
     
-    def _with_sampling(self, call, sampling: Dict[str, Any]):
-        """Make the call with the sampling parameters (temperature, top_p).
+    # Fields with another name that some models take instead: OpenAI's
+    # newer models take max_completion_tokens, older ones max_tokens.
+    FIELD_ALTERNATIVES = {"max_completion_tokens": "max_tokens"}
 
-        Some models refuse them (reasoning models, recent Claude models). The
-        call is then made again without them, and a warning says once that
-        the configured values are not applied with this model."""
-        if self.model in _SAMPLING_REFUSED or not sampling:
-            return call(None)
-        try:
-            return call(sampling)
-        except Exception as e:
-            text = str(e).lower()
-            if not any(k in text for k in ("temperature", "top_p", "top-p", "sampling")):
-                raise
-            _SAMPLING_REFUSED.add(self.model)
-            self.logger.warning(f"The model {self.model} refuses {sorted(sampling)}; "
-                                f"calling it without them, so the configured values are not applied ({e})")
-            print(f"[irace-evo] WARNING: {self.model} does not accept {sorted(sampling)}; they are not applied.")
-            return call(None)
+    def _with_sampling(self, call, fields: Dict[str, Any]):
+        """Make the call with the request fields that vary between models and
+        API versions: temperature and top_p (Phi in the paper), the token
+        limit's name, Claude's thinking switch, and llm_config.extra_body.
+
+        Providers change which of these a model takes. The API names one
+        refused field per error, so that field is renamed (when it has an
+        alternative name) or dropped, and the call made again, until it goes
+        through. What a model refused is remembered for the rest of the run,
+        and a warning says it once."""
+        refused = _SAMPLING_REFUSED.setdefault(self.model, set())
+        fields = dict(fields)
+        for key in list(fields):
+            if key in refused:
+                value = fields.pop(key)
+                alt = self.FIELD_ALTERNATIVES.get(key)
+                if alt and alt not in refused:
+                    fields.setdefault(alt, value)
+        while True:
+            try:
+                return call(fields or None)
+            except Exception as e:
+                text = str(e).lower()
+                named = [k for k in fields if k in text or k.replace("_", "-") in text]
+                if not named:
+                    raise
+                for k in named:
+                    value = fields.pop(k)
+                    refused.add(k)
+                    alt = self.FIELD_ALTERNATIVES.get(k)
+                    if alt and alt not in refused:
+                        fields[alt] = value
+                self.logger.warning(f"The model {self.model} refuses {named}; calling it without them ({e})")
+                print(f"[irace-evo] WARNING: {self.model} does not accept {named}; they are not applied.")
+
+    def _fields(self, provider_fields: Dict[str, Any]) -> Dict[str, Any]:
+        """The request fields that vary between models, plus extra_body from
+        llm_config (any field a provider adds later, without a code change)."""
+        fields = {"temperature": self.temperature}
+        if self.top_p is not None:
+            fields["top_p"] = self.top_p
+        fields.update(provider_fields)
+        fields.update(self.config.get("extra_body") or {})
+        return fields
+
+    @staticmethod
+    def _tokens(usage, input_names, output_names) -> Dict[str, int]:
+        """Token counts from a usage object, whatever its field names."""
+        def first(names):
+            for n in names:
+                v = getattr(usage, n, None)
+                if isinstance(v, int):
+                    return v
+            return 0
+        return {'input': first(input_names), 'output': first(output_names)}
+
+    def _cost(self, tokens: Dict[str, int]) -> float:
+        """A rough estimate; the provider's bill is the real cost."""
+        model = self.model.lower()
+        if self.api_provider.lower() == 'openai':
+            per_1k = (0.03, 0.06) if 'gpt-4' in model else (0.0015, 0.002)
+        else:
+            per_1k = (0.008, 0.024) if 'opus' in model else (0.003, 0.015)
+        return tokens['input'] / 1000 * per_1k[0] + tokens['output'] / 1000 * per_1k[1]
 
     def _call_openai(self, prompt: str, attempt: int) -> tuple:
-        """Call OpenAI API"""
+        """Call the OpenAI chat completions API."""
         try:
-            self.logger.debug(f"Making OpenAI API call (attempt {attempt + 1}) with model {self.model}")
-            
-            # Prepare API call parameters with global optimization system prompt
             api_params = {
                 "model": self.model,
                 "messages": [
                     {"role": "system", "content": OPTIMIZATION_SYSTEM_PROMPT},
                     {"role": "user", "content": prompt}
                 ],
-                # Phi (paper, Sect. 2.3): the configured temperature and top_p,
-                # the same on every attempt.
-                "temperature": self.temperature,
                 "timeout": self.timeout
             }
-            if self.top_p is not None:
-                api_params["top_p"] = self.top_p
-            
-            # Use the correct token parameter depending on model
-            # Newer models (like gpt-4o, gpt-4-turbo, o1-mini) use max_completion_tokens
-            # Older models still use max_tokens
-            if "gpt-4" in self.model.lower() or "gpt-5" in self.model.lower() or "o1" in self.model.lower() or "o4" in self.model.lower():
-                api_params["max_completion_tokens"] = self.max_tokens
-            else:
-                api_params["max_tokens"] = self.max_tokens
-            
-            # Add stop sequences if they help with code generation
-            # Removing stop parameter to see if it's causing issues
-            # api_params["stop"] = ["```"]
-            
-            sampling = {k: api_params.pop(k) for k in ("temperature", "top_p") if k in api_params}
+            fields = self._fields({"max_completion_tokens": self.max_tokens})
             response = self._with_sampling(
-                lambda extra: self.client.chat.completions.create(**api_params, extra_body=extra), sampling)
-            
-            # Extract tokens and calculate cost
-            usage = response.usage
-            tokens_used = {
-                'input': usage.prompt_tokens,
-                'output': usage.completion_tokens
-            }
-            
-            # Cost estimation (approximate rates)
-            cost_per_1k_input = 0.03 if 'gpt-4' in self.model else 0.0015
-            cost_per_1k_output = 0.06 if 'gpt-4' in self.model else 0.002
-            
-            cost_estimate = (
-                (tokens_used['input'] / 1000) * cost_per_1k_input +
-                (tokens_used['output'] / 1000) * cost_per_1k_output
-            )
-            
-            return response.choices[0].message.content, tokens_used, cost_estimate
-            
+                lambda extra: self.client.chat.completions.create(**api_params, extra_body=extra), fields)
+            message = response.choices[0].message
+            content = message.content
+            if isinstance(content, list):  # a list of parts in some API versions
+                content = "".join(getattr(p, "text", None) or (p.get("text", "") if isinstance(p, dict) else "")
+                                  for p in content)
+            if not content:
+                reason = getattr(message, "refusal", None) or response.choices[0].finish_reason
+                raise RuntimeError(f"the reply has no text ({reason}); raise max_tokens if it is 'length'")
+            tokens = self._tokens(response.usage, ("prompt_tokens", "input_tokens"),
+                                  ("completion_tokens", "output_tokens"))
+            return content, tokens, self._cost(tokens)
         except Exception as e:
             error_msg = f"OpenAI API call failed on attempt {attempt + 1}: {type(e).__name__}: {e}"
             self.logger.error(error_msg)
             raise RuntimeError(error_msg)
-    
+
     def _call_anthropic(self, prompt: str, attempt: int) -> tuple:
-        """Call Anthropic Claude API"""
+        """Call the Anthropic messages API."""
         try:
-            # Phi (paper, Sect. 2.3): the configured temperature and top_p.
-            # Recent versions of the anthropic package no longer take them as
-            # arguments, so they travel in the request body.
             api_params = {
                 "model": self.model,
                 "max_tokens": self.max_tokens,
                 "system": OPTIMIZATION_SYSTEM_PROMPT,
                 "messages": [{"role": "user", "content": prompt}],
             }
-            sampling = {"temperature": self.temperature}
-            if self.top_p is not None:
-                sampling["top_p"] = self.top_p
+            # Recent versions of the anthropic package do not take temperature
+            # and top_p as arguments, so every variable field travels in the
+            # request body. The method asks for the function directly; recent
+            # Claude models otherwise think first, which costs tokens and can
+            # use up max_tokens before any code is written.
+            fields = self._fields({"thinking": {"type": "disabled"}})
             response = self._with_sampling(
-                lambda extra: self.client.messages.create(**api_params, extra_body=extra), sampling)
-            
-            # Extract tokens and calculate cost
-            usage = response.usage
-            tokens_used = {
-                'input': usage.input_tokens,
-                'output': usage.output_tokens
-            }
-            
-            # Claude pricing (approximate)
-            cost_per_1k_input = 0.008 if 'claude-3-opus' in self.model else 0.003
-            cost_per_1k_output = 0.024 if 'claude-3-opus' in self.model else 0.015
-            
-            cost_estimate = (
-                (tokens_used['input'] / 1000) * cost_per_1k_input +
-                (tokens_used['output'] / 1000) * cost_per_1k_output
-            )
-            
-            return response.content[0].text, tokens_used, cost_estimate
-            
+                lambda extra: self.client.messages.create(**api_params, extra_body=extra), fields)
+            # The answer is the text blocks; a thinking block may come first.
+            text = "".join(getattr(b, "text", "") or "" for b in response.content
+                           if getattr(b, "type", "text") == "text")
+            if not text:
+                raise RuntimeError(f"the reply has no text (stop reason: {response.stop_reason}); "
+                                   "raise max_tokens if it is max_tokens")
+            tokens = self._tokens(response.usage, ("input_tokens", "prompt_tokens"),
+                                  ("output_tokens", "completion_tokens"))
+            return text, tokens, self._cost(tokens)
         except Exception as e:
             raise RuntimeError(f"Anthropic API call failed: {e}")
     
