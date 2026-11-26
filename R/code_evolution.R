@@ -82,8 +82,8 @@ initialize_python_backend <- function(scenario) {
     
   }, error = function(e) {
     irace_error("Failed to initialize the Python backend for code evolution: ", e$message,
-                " Install the Python packages with: pip install -r ",
-                system.file("python", "requirements.txt", package = "irace"))
+                " (If a Python package is missing: pip install -r ",
+                system.file("python", "requirements.txt", package = "irace"), ")")
   })
 }
 

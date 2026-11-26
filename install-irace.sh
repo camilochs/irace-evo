@@ -4,7 +4,10 @@
 set -e
 Rscript -e 'pkgs <- c("R6", "codetools", "data.table", "fs", "matrixStats", "spacefillr", "withr", "reticulate", "jsonlite");
             missing <- setdiff(pkgs, rownames(installed.packages()));
-            if (length(missing)) install.packages(missing, repos = "https://cloud.r-project.org")'
+            if (length(missing)) install.packages(missing, repos = "https://cloud.r-project.org");
+            missing <- setdiff(pkgs, rownames(installed.packages()));
+            if (length(missing)) stop("could not install the R packages ", paste(missing, collapse = ", "),
+                                      "; the messages above say what they need", call. = FALSE)'
 R CMD INSTALL .
 # The Python that R will use: RETICULATE_PYTHON when set (a virtual
 # environment, say), python3 otherwise.

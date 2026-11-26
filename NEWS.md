@@ -1,3 +1,68 @@
+# irace-evo — 2026-11
+
+The code now does what the paper (Chacón Sartori & Blum, MIC 2026) describes.
+Runs made with the version of 2026-06 behaved differently in the points
+marked *(paper)*; `tests/evo/` checks each of them on an offline run.
+
+ * *(paper)* A configuration is a pair (θ, A). A configuration keeps the
+   code variant it was given for the whole run. Before, the variant of
+   every configuration was recomputed each iteration from its ID modulo the
+   number of variants, so an elite ran different code from one iteration
+   to the next, and the variant reported as the winner was not always the
+   code that produced its results.
+ * *(paper)* New configurations take variants from the pool of Algorithm 1:
+   the variants of this iteration, those of the elites, and the original.
+   Before, every variant ever generated stayed in the pool.
+ * *(paper)* Always-From-Original. Every variant is generated from the
+   original code. From iteration 2 on, variants used to be generated from
+   variants of the previous iteration.
+ * *(paper)* The whole source file is sent in every call of iteration 1 and
+   selected fragments afterwards. Before, only the first call of each
+   iteration carried the whole file.
+ * *(paper)* Evolution focus: prompts ask for moderate changes before
+   iteration `evolution_focus_iteration` (ef, default 3) and for broader
+   structural changes from it on. Before, the focus came from rank
+   statistics.
+ * *(paper)* The configured `temperature` and `top_p` are sent to both
+   providers. Anthropic calls used temperature 0.7 and 1500 tokens whatever
+   the configuration said, and `top_p` was never sent. Recent versions of
+   the `anthropic` package no longer accept these arguments (which broke the
+   Anthropic provider); they now travel in the request body, and a model
+   that refuses them is called without them, with a warning.
+ * Every iteration generates variants. A rule that skipped the LLM when the
+   remaining budget looked small is gone (not in the paper).
+ * Fixed: with `elite_preservation`, code evolution stopped after
+   iteration 1 whenever the original was the best (every attempt failed
+   with ZeroDivisionError). `elite_preservation` and the performance-history
+   prompts (`use_dynamic_prompting`) are not part of the paper and are off
+   unless the configuration turns them on.
+ * Fixed: the OpenAI API key was written into the irace output and into
+   `irace-evo-llm-logs/python_execution.log`.
+ * Fixed: each iteration sent an extra request to GPT-4o to test the
+   connection, also when the provider was Anthropic.
+ * Fixed: the per-language sections of `build_config` (as in the template)
+   were ignored; compiler, flags and include paths were the defaults. The
+   original file's directory is on the include path of every variant.
+ * Fixed: a Python variant's program pointed to a file that the next
+   iteration overwrote.
+ * Fixed: an iteration in which no variant compiled stopped irace; the new
+   configurations now take the surviving variants and the original. Copies
+   of the original are no longer passed off as variants.
+ * `validation_config` is used: each variant runs once with
+   `test_arguments` and races only if it passes. (The smoke test before
+   looked for `.tsp` instances and ran nothing in any other example.)
+ * The winning function is shown for any source file and function name;
+   `order_chromosome` and `./src/brkga.cpp` were fixed in the code.
+ * The Python backend no longer needs numpy; `requirements.txt` lists what
+   it imports. `post-install.sh` (with a fixed home path) is gone;
+   `install-irace.sh` installs the R and Python parts.
+ * The template keeps only the options the code reads.
+ * Example: the target runner never deletes files (a missing variant used
+   to wipe `bin/` and the sources, and the rest of the run used the
+   original); the problem maximises, so the runner returns the negative
+   score by default; run leftovers, x86 binaries and development scripts
+   are out of the example.
+
 # irace-evo (fork of irace 4.2.0.9000) — 2026-06
 
 This fork, **irace-evo**, extends irace with LLM-based code evolution
