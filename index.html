@@ -81,7 +81,7 @@ pre { background: var(--code-bg); color: var(--code-ink); border-radius: 12px; p
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin: 18px 0 8px; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; box-shadow: var(--shadow); }
 .cards.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-@media (max-width: 600px) { .cards.two { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .cards.two { grid-template-columns: 1fr; } .hero-card { font-size: 11px; padding: 16px; } }
 .card b { display: block; margin-bottom: 4px; }
 .card p { margin: 0; color: var(--muted); font-size: 15px; }
 .note { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 12px 16px; border-radius: 0 10px 10px 0; margin: 18px 0; }
@@ -110,7 +110,7 @@ footer div { max-width: 1120px; margin: 0 auto; padding: 28px 24px 48px; }
     <div>
       <div class="eyebrow">Tutorial</div>
       <h1>Tune the parameters.<br>Rewrite the function.</h1>
-      <p class="lede">irace-evo is irace with one addition: while it tunes your algorithm's parameters, an LLM writes new versions of one of its functions, and irace races them together. This tutorial takes you from installation to a run on your own code.</p>
+      <p class="lede">irace-evo is irace with one addition. While irace tunes the parameters of your algorithm, an LLM writes new versions of one of its functions, and irace races the code together with the parameters. This tutorial goes from the installation to a run on your own code.</p>
       <div class="cta">
         <a class="btn primary" href="#install">Start the tutorial</a>
         <a class="btn" href="https://github.com/camilochs/irace-evo">Code on GitHub</a>
@@ -146,18 +146,19 @@ footer div { max-width: 1120px; margin: 0 auto; padding: 28px 24px 48px; }
       <div class="step">1 · The idea</div>
       <h2>One function, written many ways</h2>
       <p>You have an algorithm that already works, and irace has tuned its parameters. What still holds it back is often one function: the rule that scores a move, orders the candidates or picks the next component. No parameter value changes that rule. It has to be written differently.</p>
-      <p>irace-evo asks an LLM to write variants of that one function and races them inside irace. A configuration becomes a pair: parameter values θ and a version A of the function. irace keeps the pairs that win, as it keeps parameter values today.</p>
+      <p>irace-evo sends the source of that function to an LLM, asks for variants, and races them inside irace. In irace a configuration is a set of parameter values, θ. In irace-evo it is a pair: θ and a version A of the function. irace keeps the pairs that win, as it already keeps the parameter values that win.</p>
       <div class="cards two">
         <div class="card"><b>One function</b><p>You name it in a JSON file. The rest of your code never changes.</p></div>
         <div class="card"><b>Always from the original</b><p>Every variant is written from your code, never from an earlier variant.</p></div>
-        <div class="card"><b>C++, Python, Java</b><p>Each variant is compiled and tested once before it races.</p></div>
-        <div class="card"><b>Cheap models</b><p>The paper's ten runs with Claude Haiku cost €1.57 in total.</p></div>
+        <div class="card"><b>C++, Python, Java</b><p>Each variant is built and run once on a test instance before it races. The paper and the example use C++.</p></div>
+        <div class="card"><b>Cost</b><p>The ten runs in the paper, with Claude Haiku 3.5, cost €1.57 in total.</p></div>
       </div>
     </section>
 
     <section id="iteration">
       <div class="step">2 · One iteration</div>
       <h2>What happens in each iteration</h2>
+      <p>irace works in iterations: it samples configurations, races them and keeps the best ones, the elites. irace-evo adds three steps to each iteration. The diagram shows where they sit, and the list below says what each one does.</p>
       <div class="cycle">
         <svg viewBox="0 0 860 250" role="img" aria-label="One irace-evo iteration: sample parameters, write variants, compile and test, pair, race">
           <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--faint)"/></marker></defs>
@@ -174,12 +175,12 @@ footer div { max-width: 1120px; margin: 0 auto; padding: 28px 24px 48px; }
       </div>
       <ol>
         <li>irace samples new parameter values, as usual.</li>
-        <li>The LLM writes <code>codeEvolutionVariants</code> versions of the function. Each starts from the original code; the versions already written in the iteration go into the prompt so the next one differs. In iteration 1 the prompt carries the whole source file, later only the function and the parts of the file it needs.</li>
-        <li>Each version is compiled (a compiler error goes back to the LLM up to two times) and run once on a test instance. The ones that fail are dropped.</li>
-        <li>Every new configuration is paired with a version: one of this iteration's, one an elite already uses, or the original. A configuration keeps its version for the rest of the run.</li>
-        <li>irace races the pairs and keeps the elites.</li>
+        <li>The LLM is asked for <code>codeEvolutionVariants</code> versions of the function. Each request starts from the original code. The versions already written in the iteration go into the prompt, so the next one differs from them. In iteration 1 the prompt carries the whole source file. Later prompts carry only the function and the parts of the file it needs.</li>
+        <li>Each version is compiled and run once on a test instance. A compiler error goes back to the LLM, up to two times. A version that still fails is dropped.</li>
+        <li>Every new configuration is paired with a version: one of this iteration's, one that an elite already uses, or the original. A configuration keeps its version for the rest of the run.</li>
+        <li>irace races the pairs and keeps the elites, as usual.</li>
       </ol>
-      <p>From iteration 3 on (<code>evolution_focus_iteration</code>), the prompt asks for broader structural changes instead of moderate ones.</p>
+      <p>The prompt changes with the iteration. From iteration 3 on (<code>evolution_focus_iteration</code>) it asks for broader structural changes instead of moderate ones.</p>
     </section>
 
     <section id="install">
@@ -196,16 +197,16 @@ export RETICULATE_PYTHON=~/.venvs/irace-evo/bin/python
       <p>It installs the R packages irace needs, irace-evo itself, and the two Python packages the LLM side imports (<code>openai</code> and <code>anthropic</code>). It ends by telling you where the <code>irace</code> command is. On a fresh Ubuntu 24.04 machine with R 4.4:</p>
       <pre class="term">Installed. The irace command is /usr/local/lib/R/site-library/irace/bin/irace; to call it as 'irace':
   export PATH="/usr/local/lib/R/site-library/irace/bin:$PATH"</pre>
-      <div class="note"><p>The R package is still called <code>irace</code>, so it replaces an irace you had installed. Keep <code>RETICULATE_PYTHON</code> set (in your shell profile, say) whenever you run irace.</p></div>
+      <div class="note"><p>The R package keeps the name <code>irace</code>, so it replaces an irace you had installed. Keep <code>RETICULATE_PYTHON</code> set (in your shell profile, say) whenever you run irace.</p></div>
     </section>
 
     <section id="offline">
       <div class="step">4 · Try it offline</div>
       <h2>A full run without an API key</h2>
-      <p>The repository has a small server that answers like the OpenAI and the Anthropic APIs. It hands back the function it was given with a comment added, so nothing improves, but every step runs: prompts, compilation, validation, pairing and racing. A checker then reads the run and tests it against the method.</p>
+      <p>Before you spend anything on an LLM, check that the installation works. The repository has a small local server that answers like the OpenAI and the Anthropic APIs. It returns the function it was sent with a comment added, so nothing improves, but every step runs: prompts, compilation, validation, pairing and racing. Then a script reads the run and checks it against the method, one line per check.</p>
       <div class="code"><pre>tests/evo/run-example.sh anthropic /tmp/evo-run
 python3 tests/evo/check_run.py /tmp/evo-run --temperature 1.0 --top-p 0.9</pre></div>
-      <p>It takes about four minutes:</p>
+      <p>It takes about four minutes and ends with these lines:</p>
       <pre class="term">PASS each configuration keeps its code :: 52 configurations, 0 ran more than one program
 PASS the fake LLM was asked for variants :: 8 requests, 8 variant requests, iterations [1, 2, 3, 4]
 PASS every variant starts from the original code (AFO) :: 0 of 8 prompts start from an earlier variant
@@ -214,18 +215,18 @@ PASS standard focus before iteration 3, aggressive from it (E_i) :: 0 of 8 promp
 PASS the configured temperature and top_p are sent (Phi) :: wanted (1.0, 0.9), sent {(1, 0.9): 8}
 PASS the API key is not written to any log :: not found
 PASS only the configured provider is called :: request paths {'/v1/messages': 8}</pre>
-      <p class="muted">The same check runs for a Python and a Java version of a small knapsack heuristic (<code>run-python-example.sh</code>, <code>run-java-example.sh</code>), and for providers that refuse a parameter, answer with a thinking block first, or fail every call.</p>
+      <p class="muted">The same check also runs for a Python and a Java version of a small knapsack heuristic (<code>run-python-example.sh</code>, <code>run-java-example.sh</code>), and for providers that refuse a parameter, answer with a thinking block first, or fail every call.</p>
     </section>
 
     <section id="real">
       <div class="step">5 · A run with Claude</div>
       <h2>The example with a real model</h2>
-      <p><code>examples/tsp-ga-evolution/</code> holds a C++ BRKGA for the Longest Run Subsequence problem: pick a subsequence of a string made of runs of equal letters, as long as possible, with each letter in one run at most. irace tunes four parameters; the LLM may rewrite <code>order_chromosome()</code>, which turns a chromosome of random keys into the order the decoder reads it in.</p>
+      <p>The offline run showed the steps working. Now the LLM is a real one. <code>examples/tsp-ga-evolution/</code> holds a C++ BRKGA (a genetic algorithm that encodes a solution as a vector of random keys) for the Longest Run Subsequence problem: pick a subsequence of a string made of runs of equal letters, as long as possible, with each letter in one run at most. irace tunes four parameters. The LLM may rewrite <code>order_chromosome()</code>, which turns a chromosome of random keys into the order the decoder reads it in.</p>
       <div class="code"><pre>cd examples/tsp-ga-evolution
 export ANTHROPIC_API_KEY=...
 TIME_LIMIT=5 irace --scenario scenario.txt</pre></div>
       <p><code>TIME_LIMIT</code> is the time of each algorithm run, in seconds. With 5 seconds per run, the whole tuning took about 9 minutes: 4 iterations, 12 calls to claude-haiku-5-5 and 69,449 tokens. All 12 versions Claude wrote compiled, and 11 passed the validation test. The winner is <code>variant_2_iter4</code> (configuration 21). Here is what irace printed.</p>
-      <p class="label">Each iteration, the pairing</p>
+      <p class="label">The pairing in each iteration</p>
       <pre class="term"># 2026-11-26 03:02:59 UTC: irace-evo: 7 new configurations paired with 4 code variants (3 new, 0 from the elites, and the original)
 # 2026-11-26 03:05:04 UTC: irace-evo: 6 new configurations paired with 7 code variants (3 new, 3 from the elites, and the original)
 # 2026-11-26 03:07:23 UTC: irace-evo: 5 new configurations paired with 7 code variants (2 new, 4 from the elites, and the original)
@@ -236,7 +237,7 @@ TIME_LIMIT=5 irace --scenario scenario.txt</pre></div>
 15 variant_2_iter3 -p 379 -pe 0.1767 -pm 0.1007 -rhoe 0.5414
 16 variant_0_iter2 -p 458 -pe 0.1178 -pm 0.187 -rhoe 0.6028
 8  variant_0_iter2 -p 380 -pe 0.2254 -pm 0.133 -rhoe 0.6089</pre>
-      <p class="label">What the LLM cost</p>
+      <p class="label">The LLM calls and tokens</p>
       <pre class="term"># LLM Code Evolution Summary
 # ===================================================================
 # LLM Configuration:
@@ -261,7 +262,7 @@ TIME_LIMIT=5 irace --scenario scenario.txt</pre></div>
 #        2        3        0       11,850        2,623        3     14.3
 #        3        3        0       11,276        1,917        2     12.3
 #        4        3        0       10,392        1,253        3      8.5</pre>
-      <p class="label">The winning function, as Claude wrote it</p>
+      <p class="label">The winning function, as the model returned it</p>
       <pre class="term"># WINNING VARIANT FUNCTION:
 # -------------------------------------------------------------------
 # vector&lt;pair&lt;int, double&gt;&gt; order_chromosome(const vector&lt;double&gt;&amp; chromosome) { 
@@ -299,15 +300,16 @@ TIME_LIMIT=5 irace --scenario scenario.txt</pre></div>
 #     } 
 #     return pos_val_pairs; 
 # }</pre>
-      <p>Every prompt and every answer is in <code>logs/irace-evo-llm.log</code>, the full source of every variant in <code>irace-evo-sources/</code>, and which configuration ran which program in <code>.irace_evo_variants.csv</code>.</p>
+      <p>The run leaves three records. <code>logs/irace-evo-llm.log</code> holds every prompt and every answer. <code>irace-evo-sources/</code> holds the full source of every variant. <code>.irace_evo_variants.csv</code> says which configuration ran which program.</p>
     </section>
 
     <section id="own">
       <div class="step">6 · Your own algorithm</div>
       <h2>Four things to prepare</h2>
+      <p>The example you just ran has the four pieces below. For your own algorithm you write each one yourself.</p>
       <ol>
         <li><b>The code.</b> Put your source file and its build where irace runs (<code>execDir</code>), with the original program compiled to <code>bin/&lt;source file name without extension&gt;</code>.</li>
-        <li><b>The configuration.</b> Copy <a href="https://github.com/camilochs/irace-evo/blob/master/inst/templates/code-evolution.json"><code>inst/templates/code-evolution.json</code></a> and fill it in (next step).</li>
+        <li><b>The configuration.</b> Copy <a href="https://github.com/camilochs/irace-evo/blob/master/inst/templates/code-evolution.json"><code>inst/templates/code-evolution.json</code></a> and fill it in (step 7).</li>
         <li><b>The target runner.</b> It reads which program each configuration runs (step 8).</li>
         <li><b>The scenario.</b> Add the three <code>codeEvolution</code> lines and run <code>irace</code>.</li>
       </ol>
@@ -317,11 +319,12 @@ TIME_LIMIT=5 irace --scenario scenario.txt</pre></div>
     <section id="config">
       <div class="step">7 · The configuration file</div>
       <h2><code>code-evolution.json</code>, section by section</h2>
+      <p>This is the file you copy and fill in. It has seven sections, and the table says what goes in each. The template carries a comment on every option.</p>
       <table>
         <tr><th>Section</th><th>What it says</th></tr>
-        <tr><td><code>problem_context</code></td><td>The problem and the algorithm in words: name, description, objective, key challenges, domain knowledge. It goes into every prompt; the clearer it is, the better the variants.</td></tr>
+        <tr><td><code>problem_context</code></td><td>The problem and the algorithm in words: name, description, objective, key challenges, domain knowledge. It goes into every prompt.</td></tr>
         <tr><td><code>language_config</code></td><td><code>cpp</code>, <code>python</code> or <code>java</code>.</td></tr>
-        <tr><td><code>source_config</code></td><td>The source file and the one function the LLM may rewrite. Variants keep its signature.</td></tr>
+        <tr><td><code>source_config</code></td><td>The source file and the one function the LLM may rewrite. The prompt tells the LLM to keep the function's signature.</td></tr>
         <tr><td><code>build_config</code></td><td>One section per language: compiler, flags, include paths, libraries. The source file's directory is always on the C++ include path.</td></tr>
         <tr><td><code>llm_config</code></td><td>Provider (<code>anthropic</code> or <code>openai</code>), model, <code>temperature</code>, <code>top_p</code>, <code>max_tokens</code>, retries. Leave <code>api_key</code> empty and export the key instead. <code>extra_body</code> passes any request field a provider adds later.</td></tr>
         <tr><td><code>evolution_config</code></td><td><code>evolution_focus_iteration</code> (when prompts turn to broader changes), the strategies used in turn, and how many times a compiler error goes back to the LLM.</td></tr>
@@ -400,7 +403,7 @@ TIME_LIMIT=5 irace --scenario scenario.txt</pre></div>
     <section id="runner">
       <div class="step">8 · The target runner</div>
       <h2>Running the right program</h2>
-      <p>irace calls your target runner as usual, with a configuration ID, an instance and the parameters. irace-evo writes <code>.irace_evo_variants.csv</code> in <code>execDir</code>, with one line per configuration: <code>config_id,executable_path,variant_id</code>. Your runner looks its configuration up there and runs that program; a configuration not in the file runs the original.</p>
+      <p>The target runner is the script irace calls to run your algorithm once. It receives a configuration ID, an instance and the parameter values, as usual. irace-evo writes <code>.irace_evo_variants.csv</code> in <code>execDir</code>, with one line per configuration: <code>config_id,executable_path,variant_id</code>. Your runner looks its configuration up there and runs that program; a configuration not in the file runs the original.</p>
       <div class="code"><pre>MAPPED=$(awk -F',' -v id="$CONFIG_ID" '$1 == id { gsub(/"/, "", $2); print $2; exit }' .irace_evo_variants.csv)
 EXECUTABLE=${MAPPED:-./bin/my-algorithm}
 "$EXECUTABLE" -i "$INSTANCE" "$@"</pre></div>
@@ -419,7 +422,7 @@ EXECUTABLE=${MAPPED:-./bin/my-algorithm}
       <table>
         <tr><th>You see</th><th>What to do</th></tr>
         <tr><td><code>was not built with a shared library</code></td><td>R loads Python through its shared library. On Linux install <code>python3-dev</code> and point <code>RETICULATE_PYTHON</code> at a virtual environment made from that Python.</td></tr>
-        <tr><td><code>externally-managed-environment</code></td><td>Your system Python does not take pip installs. Make the virtual environment of step 3.</td></tr>
+        <tr><td><code>externally-managed-environment</code></td><td>Your system Python does not accept pip installs. Make the virtual environment of step 3.</td></tr>
         <tr><td><code>every call to the LLM failed; the last error was: …</code></td><td>The provider refused every call: a revoked key, a retired model, no credit. The message is the provider's own; irace stops instead of racing the original alone.</td></tr>
         <tr><td><code>WARNING: … does not accept ['temperature', 'top_p']</code></td><td>Some models refuse these. irace-evo drops what the API names and calls again; nothing to do.</td></tr>
         <tr><td><code>Discarding variant_… : it failed the validation test</code></td><td>The variant compiled but crashed, timed out or printed something else than a number on the test instance. It does not race.</td></tr>
