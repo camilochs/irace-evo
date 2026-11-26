@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>irace-evo tutorial</title>
+<meta name="description" content="A step-by-step tutorial for irace-evo: tune an algorithm's parameters and evolve one of its functions with an LLM, inside irace.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #fbfaf7; --surface: #ffffff; --ink: #1d1f24; --muted: #5d6370; --faint: #8a909c;
+  --line: #e7e3da; --accent: #b4532a; --accent-soft: #f6e7df; --accent-ink: #8a3a18;
+  --code-bg: #f4f1ea; --code-ink: #2a2d33; --term-bg: #16181d; --term-ink: #e6e2d8; --term-dim: #8f948f;
+  --ok: #2f7d4f; --shadow: 0 1px 2px rgba(20,20,20,.04), 0 8px 24px rgba(20,20,20,.05);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121317; --surface: #1a1c21; --ink: #ece9e2; --muted: #a7abb4; --faint: #7d828c;
+    --line: #2b2e35; --accent: #e08a5e; --accent-soft: #2e221c; --accent-ink: #f0a982;
+    --code-bg: #1f2127; --code-ink: #e3e0d8; --term-bg: #0c0d10; --term-ink: #e6e2d8; --term-dim: #7d827d;
+    --ok: #6cc08f; --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121317; --surface: #1a1c21; --ink: #ece9e2; --muted: #a7abb4; --faint: #7d828c;
+  --line: #2b2e35; --accent: #e08a5e; --accent-soft: #2e221c; --accent-ink: #f0a982;
+  --code-bg: #1f2127; --code-ink: #e3e0d8; --term-bg: #0c0d10; --term-ink: #e6e2d8; --term-dim: #7d827d;
+  --ok: #6cc08f; --shadow: none;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 24px; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16.5px/1.7 Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+a { color: var(--accent-ink); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+code, pre, kbd { font-family: "JetBrains Mono", ui-monospace, monospace; }
+:not(pre) > code { background: var(--code-bg); padding: .12em .38em; border-radius: 5px; font-size: .88em; }
+
+.hero { border-bottom: 1px solid var(--line); background:
+  radial-gradient(900px 380px at 85% -10%, var(--accent-soft), transparent 70%), var(--bg); }
+.hero-inner > * { min-width: 0; }
+.hero-inner { max-width: 1120px; margin: 0 auto; padding: 72px 24px 56px; display: grid; grid-template-columns: 1.15fr .85fr; gap: 48px; align-items: center; }
+.eyebrow { font-size: 13px; letter-spacing: .14em; text-transform: uppercase; color: var(--accent-ink); font-weight: 600; }
+h1 { font-family: Fraunces, Georgia, serif; font-weight: 650; font-size: clamp(40px, 6vw, 64px); line-height: 1.02; margin: 12px 0 18px; letter-spacing: -.01em; }
+.lede { font-size: 19px; color: var(--muted); max-width: 34em; margin: 0 0 28px; }
+.cta { display: flex; gap: 12px; flex-wrap: wrap; }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 18px; border-radius: 10px; font-weight: 600; font-size: 15px; text-decoration: none; border: 1px solid var(--line); color: var(--ink); background: var(--surface); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn:hover { filter: brightness(1.04); }
+.hero-card { border: 1px solid var(--line); white-space: pre; min-width: 0; background: var(--term-bg); color: var(--term-ink); border-radius: 14px; padding: 20px 22px; font: 13.5px/1.65 "JetBrains Mono", monospace; box-shadow: 0 20px 50px rgba(0,0,0,.18); overflow-x: auto; }
+.hero-card .k { color: var(--accent); } .hero-card .c { color: var(--term-dim); }
+
+.layout { max-width: 1120px; margin: 0 auto; padding: 0 24px; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 56px; }
+nav.toc { position: sticky; top: 24px; align-self: start; padding: 40px 0; font-size: 14px; }
+nav.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: s; }
+nav.toc li { counter-increment: s; }
+nav.toc a { display: block; padding: 6px 10px; border-radius: 8px; color: var(--muted); text-decoration: none; }
+nav.toc a::before { content: counter(s) "  "; color: var(--faint); font-variant-numeric: tabular-nums; }
+nav.toc a:hover, nav.toc a.on { background: var(--accent-soft); color: var(--accent-ink); }
+.theme { margin-top: 18px; font: inherit; font-size: 13px; color: var(--muted); background: none; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+
+main { padding: 40px 0 96px; min-width: 0; }
+section { padding: 8px 0 40px; border-bottom: 1px solid var(--line); margin-bottom: 40px; }
+section:last-child { border-bottom: 0; }
+.step { font-size: 13px; color: var(--accent-ink); font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+h2 { font-family: Fraunces, Georgia, serif; font-weight: 650; font-size: 32px; line-height: 1.15; margin: 6px 0 16px; }
+h3 { font-size: 18px; margin: 28px 0 8px; }
+p, li { max-width: 44em; }
+.muted { color: var(--muted); }
+
+pre { background: var(--code-bg); color: var(--code-ink); border-radius: 12px; padding: 16px 18px; overflow-x: auto; font-size: 13.5px; line-height: 1.6; margin: 14px 0 20px; border: 1px solid var(--line); }
+.term { background: var(--term-bg); color: var(--term-ink); border-color: transparent; }
+.term .dim { color: var(--term-dim); } .term .ok { color: #8fd3a8; } .term .acc { color: var(--accent); }
+.code { position: relative; }
+.copy { position: absolute; top: 10px; right: 10px; font: 12px Inter, sans-serif; padding: 4px 9px; border-radius: 7px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); cursor: pointer; opacity: .85; }
+.copy:hover { opacity: 1; }
+.label { font-size: 12.5px; color: var(--faint); margin: 18px 0 -8px; font-weight: 500; }
+
+.cycle { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 18px; box-shadow: var(--shadow); margin: 20px 0 24px; }
+.cycle svg { width: 100%; height: auto; display: block; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin: 18px 0 8px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; box-shadow: var(--shadow); }
+.card b { display: block; margin-bottom: 4px; }
+.card p { margin: 0; color: var(--muted); font-size: 15px; }
+.note { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 12px 16px; border-radius: 0 10px 10px 0; margin: 18px 0; }
+.note p { margin: 0; }
+table { border-collapse: collapse; width: 100%; display: block; overflow-x: auto; font-size: 14.5px; margin: 14px 0 22px; }
+tbody { display: table; width: 100%; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 600; color: var(--muted); font-size: 13px; }
+td code { overflow-wrap: anywhere; }
+@media (min-width: 901px) { td:first-child code { white-space: nowrap; } }
+footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px; }
+footer div { max-width: 1120px; margin: 0 auto; padding: 28px 24px 48px; }
+
+@media (max-width: 900px) {
+  .hero-inner { grid-template-columns: 1fr; padding: 48px 16px 40px; gap: 28px; }
+  .layout { grid-template-columns: 1fr; padding: 0 16px; gap: 0; }
+  nav.toc { position: static; padding: 24px 0 0; }
+  nav.toc ol { display: flex; flex-wrap: wrap; gap: 4px; }
+}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner">
+    <div>
+      <div class="eyebrow">Tutorial</div>
+      <h1>Tune the parameters.<br>Rewrite the function.</h1>
+      <p class="lede">irace-evo is irace with one addition: while it tunes your algorithm's parameters, an LLM writes new versions of one of its functions, and irace races them together. This tutorial takes you from installation to a run on your own code.</p>
+      <div class="cta">
+        <a class="btn primary" href="#install">Start the tutorial</a>
+        <a class="btn" href="https://github.com/camilochs/irace-evo">Code on GitHub</a>
+        <a class="btn" href="https://doi.org/10.48550/arXiv.2511.14794">The paper</a>
+      </div>
+    </div>
+    <div class="hero-card" aria-label="The three scenario lines that turn on irace-evo"><span class="c">## scenario.txt: irace as usual, plus</span>
+<span class="k">codeEvolution</span>         = "TRUE"
+<span class="k">codeEvolutionConfig</span>   = "./code-evolution.json"
+<span class="k">codeEvolutionVariants</span> = 5</div>
+  </div>
+</header>
+
+<div class="layout">
+  <nav class="toc" aria-label="Contents">
+    <ol>
+      <li><a href="#idea">The idea</a></li>
+      <li><a href="#iteration">One iteration</a></li>
+      <li><a href="#install">Install</a></li>
+      <li><a href="#offline">Try it offline</a></li>
+      <li><a href="#real">A run with Claude</a></li>
+      <li><a href="#own">Your own algorithm</a></li>
+      <li><a href="#config">The configuration file</a></li>
+      <li><a href="#runner">The target runner</a></li>
+      <li><a href="#trouble">When something fails</a></li>
+      <li><a href="#cite">Cite</a></li>
+    </ol>
+    <button class="theme" type="button" id="theme">Switch theme</button>
+  </nav>
+
+  <main>
+    <section id="idea">
+      <div class="step">1 · The idea</div>
+      <h2>One function, written many ways</h2>
+      <p>You have an algorithm that already works, and irace has tuned its parameters. What still holds it back is often one function: the rule that scores a move, orders the candidates or picks the next component. No parameter value changes that rule. It has to be written differently.</p>
+      <p>irace-evo asks an LLM to write variants of that one function and races them inside irace. A configuration becomes a pair: parameter values θ and a version A of the function. irace keeps the pairs that win, as it keeps parameter values today.</p>
+      <div class="cards">
+        <div class="card"><b>One function</b><p>You name it in a JSON file. The rest of your code never changes.</p></div>
+        <div class="card"><b>Always from the original</b><p>Every variant is written from your code, never from an earlier variant.</p></div>
+        <div class="card"><b>C++, Python, Java</b><p>Each variant is compiled and tested once before it races.</p></div>
+        <div class="card"><b>Cheap models</b><p>The paper's ten runs with Claude Haiku cost €1.57 in total.</p></div>
+      </div>
+    </section>
+
+    <section id="iteration">
+      <div class="step">2 · One iteration</div>
+      <h2>What happens in each iteration</h2>
+      <div class="cycle">
+        <svg viewBox="0 0 860 250" role="img" aria-label="One irace-evo iteration: sample parameters, write variants, compile and test, pair, race">
+          <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--faint)"/></marker></defs>
+          <g font-family="Inter, sans-serif" font-size="14" fill="var(--ink)">
+            <g><rect x="10" y="60" width="140" height="84" rx="14" fill="var(--surface)" stroke="var(--line)"/><text x="80" y="95" text-anchor="middle" font-weight="600">Sample θ</text><text x="80" y="117" text-anchor="middle" fill="var(--muted)" font-size="12.5">as irace does</text></g>
+            <g><rect x="180" y="60" width="150" height="84" rx="14" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="255" y="95" text-anchor="middle" font-weight="600">LLM writes A</text><text x="255" y="117" text-anchor="middle" fill="var(--muted)" font-size="12.5">n variants, from A₀</text></g>
+            <g><rect x="360" y="60" width="150" height="84" rx="14" fill="var(--surface)" stroke="var(--line)"/><text x="435" y="95" text-anchor="middle" font-weight="600">Compile, test</text><text x="435" y="117" text-anchor="middle" fill="var(--muted)" font-size="12.5">failures are dropped</text></g>
+            <g><rect x="540" y="60" width="140" height="84" rx="14" fill="var(--surface)" stroke="var(--line)"/><text x="610" y="95" text-anchor="middle" font-weight="600">Pair (θ, A)</text><text x="610" y="117" text-anchor="middle" fill="var(--muted)" font-size="12.5">kept for the run</text></g>
+            <g><rect x="710" y="60" width="140" height="84" rx="14" fill="var(--surface)" stroke="var(--line)"/><text x="780" y="95" text-anchor="middle" font-weight="600">Race</text><text x="780" y="117" text-anchor="middle" fill="var(--muted)" font-size="12.5">elites survive</text></g>
+            <g stroke="var(--faint)" stroke-width="1.5" fill="none" marker-end="url(#ar)"><path d="M150 102 H176"/><path d="M330 102 H356"/><path d="M510 102 H536"/><path d="M680 102 H706"/><path d="M780 144 V196 H80 V148"/></g>
+            <text x="430" y="222" text-anchor="middle" fill="var(--muted)" font-size="12.5">next iteration: new configurations take this iteration's variants, the elites' variants, or the original</text>
+          </g>
+        </svg>
+      </div>
+      <ol>
+        <li>irace samples new parameter values, as usual.</li>
+        <li>The LLM writes <code>codeEvolutionVariants</code> versions of the function. Each starts from the original code; the versions already written in the iteration go into the prompt so the next one differs. In iteration 1 the prompt carries the whole source file, later only the function and the parts of the file it needs.</li>
+        <li>Each version is compiled (a compiler error goes back to the LLM up to two times) and run once on a test instance. The ones that fail are dropped.</li>
+        <li>Every new configuration is paired with a version: one of this iteration's, one an elite already uses, or the original. A configuration keeps its version for the rest of the run.</li>
+        <li>irace races the pairs and keeps the elites.</li>
+      </ol>
+      <p>From iteration 3 on (<code>evolution_focus_iteration</code>), the prompt asks for broader structural changes instead of moderate ones.</p>
+    </section>
+
+    <section id="install">
+      <div class="step">3 · Install</div>
+      <h2>Install irace-evo</h2>
+      <p>You need R 4.0 or later, Python 3.9 or later and a C++ compiler. On Linux, R builds packages from source, so it also needs Python's shared library and two system libraries. On Debian or Ubuntu:</p>
+      <div class="code"><pre>sudo apt-get install python3-dev python3-venv g++ make libuv1-dev libpng-dev zlib1g-dev</pre></div>
+      <p>Give the LLM side its own Python environment and tell R to use it, then run the installer from the repository:</p>
+      <div class="code"><pre>git clone https://github.com/camilochs/irace-evo.git
+cd irace-evo
+python3 -m venv ~/.venvs/irace-evo
+export RETICULATE_PYTHON=~/.venvs/irace-evo/bin/python
+./install-irace.sh</pre></div>
+      <p>It installs the R packages irace needs, irace-evo itself, and the two Python packages the LLM side imports (<code>openai</code> and <code>anthropic</code>). It ends by telling you where the <code>irace</code> command is. On a fresh Ubuntu 24.04 machine with R 4.4:</p>
+      <pre class="term">Installed. The irace command is /usr/local/lib/R/site-library/irace/bin/irace; to call it as 'irace':
+  export PATH="/usr/local/lib/R/site-library/irace/bin:$PATH"</pre>
+      <div class="note"><p>The R package is still called <code>irace</code>, so it replaces an irace you had installed. Keep <code>RETICULATE_PYTHON</code> set (in your shell profile, say) whenever you run irace.</p></div>
+    </section>
+
+    <section id="offline">
+      <div class="step">4 · Try it offline</div>
+      <h2>A full run without an API key</h2>
+      <p>The repository has a small server that answers like the OpenAI and the Anthropic APIs. It hands back the function it was given with a comment added, so nothing improves, but every step runs: prompts, compilation, validation, pairing and racing. A checker then reads the run and tests it against the method.</p>
+      <div class="code"><pre>tests/evo/run-example.sh anthropic /tmp/evo-run
+python3 tests/evo/check_run.py /tmp/evo-run --temperature 1.0 --top-p 0.9</pre></div>
+      <p>It takes about four minutes:</p>
+      <pre class="term">PASS each configuration keeps its code :: 52 configurations, 0 ran more than one program
+PASS the fake LLM was asked for variants :: 8 requests, 8 variant requests, iterations [1, 2, 3, 4]
+PASS every variant starts from the original code (AFO) :: 0 of 8 prompts start from an earlier variant
+PASS whole file in iteration 1, fragments after (R_i) :: 0 of 8 prompts with the wrong context
+PASS standard focus before iteration 3, aggressive from it (E_i) :: 0 of 8 prompts with the wrong focus
+PASS the configured temperature and top_p are sent (Phi) :: wanted (1.0, 0.9), sent {(1, 0.9): 8}
+PASS the API key is not written to any log :: not found
+PASS only the configured provider is called :: request paths {'/v1/messages': 8}</pre>
+      <p class="muted">The same check runs for a Python and a Java version of a small knapsack heuristic (<code>run-python-example.sh</code>, <code>run-java-example.sh</code>), and for providers that refuse a parameter, answer with a thinking block first, or fail every call.</p>
+    </section>
+
+    <section id="real">
+      <div class="step">5 · A run with Claude</div>
+      <h2>The example with a real model</h2>
+      <p><code>examples/tsp-ga-evolution/</code> holds a C++ BRKGA for the Longest Run Subsequence problem: pick a subsequence of a string made of runs of equal letters, as long as possible, with each letter in one run at most. irace tunes four parameters; the LLM may rewrite <code>order_chromosome()</code>, which turns a chromosome of random keys into the order the decoder reads it in.</p>
+      <div class="code"><pre>cd examples/tsp-ga-evolution
+export ANTHROPIC_API_KEY=...
+TIME_LIMIT=5 irace --scenario scenario.txt</pre></div>
+      <p><code>TIME_LIMIT</code> is the time of each algorithm run, in seconds. With 5 seconds per run, the whole tuning took about 9 minutes: 4 iterations, 12 calls to claude-haiku-5-5 and 69,449 tokens. All 12 versions Claude wrote compiled, and 11 passed the validation test. The winner is <code>variant_2_iter4</code> (configuration 21). Here is what irace printed.</p>
+      <p class="label">Each iteration, the pairing</p>
+      <pre class="term"># 2026-11-26 03:02:59 UTC: irace-evo: 7 new configurations paired with 4 code variants (3 new, 0 from the elites, and the original)
+# 2026-11-26 03:05:04 UTC: irace-evo: 6 new configurations paired with 7 code variants (3 new, 3 from the elites, and the original)
+# 2026-11-26 03:07:23 UTC: irace-evo: 5 new configurations paired with 7 code variants (2 new, 4 from the elites, and the original)
+# 2026-11-26 03:09:27 UTC: irace-evo: 4 new configurations paired with 7 code variants (3 new, 3 from the elites, and the original)</pre>
+      <p class="label">At the end, the best configurations and the code each one runs</p>
+      <pre class="term"># Best configurations as commandlines (first number is the configuration ID, second is the variant; listed from best to worst according to the sum of ranks):
+21 variant_2_iter4 -p 409 -pe 0.1317 -pm 0.1385 -rhoe 0.617
+15 variant_2_iter3 -p 379 -pe 0.1767 -pm 0.1007 -rhoe 0.5414
+16 variant_0_iter2 -p 458 -pe 0.1178 -pm 0.187 -rhoe 0.6028
+8  variant_0_iter2 -p 380 -pe 0.2254 -pm 0.133 -rhoe 0.6089</pre>
+      <p class="label">What the LLM cost</p>
+      <pre class="term"># LLM Code Evolution Summary
+# ===================================================================
+# LLM Configuration:
+#   API Provider:             anthropic
+#   Model:                    claude-haiku-5-5
+#   Temperature:              not accepted by the model, not applied
+#   Refused by the model:     temperature, top_p
+#   Max Tokens:               2000
+#
+# Overall Metrics:
+#   Total LLM API Calls:      12
+#   Total Retry Attempts:     0
+#   Input Tokens Used:        61,907
+#   Output Tokens Used:       7,542
+#   Total Tokens:             69,449
+#   Total LLM Processing Time: 48.3 seconds
+#
+# Per-Iteration Breakdown:
+#     Iter    Calls  Retries        Input       Output Variants  Time(s)
+# ---------------------------------------------------------------------
+#        1        3        0       28,389        1,749        3     13.2
+#        2        3        0       11,850        2,623        3     14.3
+#        3        3        0       11,276        1,917        2     12.3
+#        4        3        0       10,392        1,253        3      8.5</pre>
+      <p class="label">The winning function, as Claude wrote it</p>
+      <pre class="term"># WINNING VARIANT FUNCTION:
+# -------------------------------------------------------------------
+# vector&lt;pair&lt;int, double&gt;&gt; order_chromosome(const vector&lt;double&gt;&amp; chromosome) { 
+#     const int n = static_cast&lt;int&gt;(chromosome.size()); 
+#     vector&lt;pair&lt;int, double&gt;&gt; pos_val_pairs(n); 
+#     if (n == 0) { 
+#         return pos_val_pairs; 
+#     } 
+#  
+#     // Radix-style ordering: map each double to an order-preserving 64-bit key, 
+#     // then sort packed (key, index) records with a single integer comparison. 
+#     // Ties are broken by original index, matching the reference semantics. 
+#     struct Keyed { 
+#         uint64_t key; 
+#         int idx; 
+#     }; 
+#     vector&lt;Keyed&gt; keyed(n); 
+#     for (int i = 0; i &lt; n; ++i) { 
+#         uint64_t bits; 
+#         const double v = chromosome[i]; 
+#         std::memcpy(&amp;bits, &amp;v, sizeof(bits)); 
+#         // Flip bits so that unsigned ordering matches floating-point ordering. 
+#         bits = (bits &amp; 0x8000000000000000ULL) ? ~bits : (bits | 0x8000000000000000ULL); 
+#         keyed[i].key = bits; 
+#         keyed[i].idx = i; 
+#     } 
+#  
+#     std::sort(keyed.begin(), keyed.end(), [](const Keyed&amp; a, const Keyed&amp; b) { 
+#         return a.key &lt; b.key || (a.key == b.key &amp;&amp; a.idx &lt; b.idx); 
+#     }); 
+#  
+#     for (int k = 0; k &lt; n; ++k) { 
+#         pos_val_pairs[k].first = keyed[k].idx; 
+#         pos_val_pairs[k].second = chromosome[keyed[k].idx]; 
+#     } 
+#     return pos_val_pairs; 
+# }</pre>
+      <p>Every prompt and every answer is in <code>logs/irace-evo-llm.log</code>, the full source of every variant in <code>irace-evo-sources/</code>, and which configuration ran which program in <code>.irace_evo_variants.csv</code>.</p>
+    </section>
+
+    <section id="own">
+      <div class="step">6 · Your own algorithm</div>
+      <h2>Four things to prepare</h2>
+      <ol>
+        <li><b>The code.</b> Put your source file and its build where irace runs (<code>execDir</code>), with the original program compiled to <code>bin/&lt;source file name without extension&gt;</code>.</li>
+        <li><b>The configuration.</b> Copy <a href="https://github.com/camilochs/irace-evo/blob/master/inst/templates/code-evolution.json"><code>inst/templates/code-evolution.json</code></a> and fill it in (next step).</li>
+        <li><b>The target runner.</b> It reads which program each configuration runs (step 8).</li>
+        <li><b>The scenario.</b> Add the three <code>codeEvolution</code> lines and run <code>irace</code>.</li>
+      </ol>
+      <div class="note"><p>Choose a small function that does one thing: a scoring rule, a comparison, an ordering. A function that mixes several parts of the algorithm gives the LLM more ways to break it.</p></div>
+    </section>
+
+    <section id="config">
+      <div class="step">7 · The configuration file</div>
+      <h2><code>code-evolution.json</code>, section by section</h2>
+      <table>
+        <tr><th>Section</th><th>What it says</th></tr>
+        <tr><td><code>problem_context</code></td><td>The problem and the algorithm in words: name, description, objective, key challenges, domain knowledge. It goes into every prompt; the clearer it is, the better the variants.</td></tr>
+        <tr><td><code>language_config</code></td><td><code>cpp</code>, <code>python</code> or <code>java</code>.</td></tr>
+        <tr><td><code>source_config</code></td><td>The source file and the one function the LLM may rewrite. Variants keep its signature.</td></tr>
+        <tr><td><code>build_config</code></td><td>One section per language: compiler, flags, include paths, libraries. The source file's directory is always on the C++ include path.</td></tr>
+        <tr><td><code>llm_config</code></td><td>Provider (<code>anthropic</code> or <code>openai</code>), model, <code>temperature</code>, <code>top_p</code>, <code>max_tokens</code>, retries. Leave <code>api_key</code> empty and export the key instead. <code>extra_body</code> passes any request field a provider adds later.</td></tr>
+        <tr><td><code>evolution_config</code></td><td><code>evolution_focus_iteration</code> (when prompts turn to broader changes), the strategies used in turn, and how many times a compiler error goes back to the LLM.</td></tr>
+        <tr><td><code>validation_config</code></td><td>The command that tests a variant once before it races, its time limit and the pattern its output must match.</td></tr>
+      </table>
+      <p>The C++ example's file, in full:</p>
+      <div class="code"><pre>{
+  "_comment": "irace-evo configuration for the example: a BRKGA for the Longest Run Subsequence problem, whose function order_chromosome() the LLM may rewrite. Options are explained in inst/templates/code-evolution.json.",
+  "problem_context": {
+    "problem_name": "Longest Runs Subsequences (LRS)",
+    "problem_description": "Find the maximum subset of runs from a given sequence such that the selected runs form the longest possible total length while satisfying subsequence constraints. This is a combinatorial optimization problem focused on selecting optimal runs from sequence data.",
+    "algorithm_approach": "Biased Random-Key Genetic Algorithm (BRKGA) with chromosome decoding for run selection",
+    "optimization_objective": "Maximize total length of selected runs while maintaining subsequence properties",
+    "key_challenges": [
+      "Efficient run selection from random keys",
+      "Maintaining subsequence constraints during decoding",
+      "Balancing between run length and number of selected runs",
+      "Handling overlapping or conflicting run candidates",
+      "Avoiding greedy selections that miss optimal combinations"
+    ],
+    "performance_considerations": "The decode_solution function is called millions of times during evolution, so algorithmic efficiency is critical. Focus on reducing complexity from O(n²) operations where possible, especially in run conflict detection and subsequence validation.",
+    "domain_knowledge": "LRS-specific heuristics include dynamic programming for optimal run selection, conflict resolution strategies for overlapping runs, and greedy approaches that prioritize high-value runs while maintaining feasibility constraints."
+  },
+  "language_config": {
+    "language": "cpp"
+  },
+  "source_config": {
+    "source_file": "./src/brkga.cpp",
+    "function_name": "order_chromosome"
+  },
+  "build_config": {
+    "cpp": {
+      "compiler": "g++",
+      "flags": [
+        "-O3",
+        "-std=c++17",
+        "-Wall"
+      ],
+      "output_dir": "./bin",
+      "compile_timeout": 30
+    }
+  },
+  "llm_config": {
+    "api_provider": "anthropic",
+    "model": "claude-haiku-5-5",
+    "api_key": "",
+    "temperature": 1.0,
+    "top_p": 0.9,
+    "max_tokens": 2000,
+    "max_retries": 3,
+    "timeout": 60
+  },
+  "evolution_config": {
+    "evolution_focus_iteration": 3,
+    "available_strategies": [
+      "innovate_heuristic_design"
+    ],
+    "intelligent_error_correction": true,
+    "max_error_correction_attempts": 2
+  },
+  "validation_config": {
+    "basic_functionality_test": true,
+    "test_arguments": [
+      "-i",
+      "./tuning_instances/len_1000_sigma8_0.txt",
+      "-t",
+      "1",
+      "-tuning"
+    ],
+    "test_timeout": 10,
+    "expected_output_pattern": "^[0-9]+(\\.[0-9]+)?$"
+  }
+}</pre></div>
+    </section>
+
+    <section id="runner">
+      <div class="step">8 · The target runner</div>
+      <h2>Running the right program</h2>
+      <p>irace calls your target runner as usual, with a configuration ID, an instance and the parameters. irace-evo writes <code>.irace_evo_variants.csv</code> in <code>execDir</code>, with one line per configuration: <code>config_id,executable_path,variant_id</code>. Your runner looks its configuration up there and runs that program; a configuration not in the file runs the original.</p>
+      <div class="code"><pre>MAPPED=$(awk -F',' -v id="$CONFIG_ID" '$1 == id { gsub(/"/, "", $2); print $2; exit }' .irace_evo_variants.csv)
+EXECUTABLE=${MAPPED:-./bin/my-algorithm}
+"$EXECUTABLE" -i "$INSTANCE" "$@"</pre></div>
+      <p>Start from the template <a href="https://github.com/camilochs/irace-evo/blob/master/inst/templates/target-runner-evolution.tmpl"><code>target-runner-evolution.tmpl</code></a> and edit its three marked lines; the example's <a href="https://github.com/camilochs/irace-evo/blob/master/examples/tsp-ga-evolution/target-runner"><code>target-runner</code></a> is a complete one. Three rules make a runner safe for code an LLM wrote:</p>
+      <div class="cards">
+        <div class="card"><b>Print only the cost</b><p>irace reads standard error too; any other line stops the run. Write messages to a log file.</p></div>
+        <div class="card"><b>Penalise, never stop</b><p>A variant that crashes or prints no cost gets a bad cost, and the tuning goes on.</p></div>
+        <div class="card"><b>Limit CPU time</b><p><code>ulimit -t</code> stops a variant that loops forever, however many runs share the cores.</p></div>
+      </div>
+      <p>irace minimises, so a runner for a maximisation problem prints the negative of the score, as the example does.</p>
+    </section>
+
+    <section id="trouble">
+      <div class="step">9 · When something fails</div>
+      <h2>Common problems</h2>
+      <table>
+        <tr><th>You see</th><th>What to do</th></tr>
+        <tr><td><code>was not built with a shared library</code></td><td>R loads Python through its shared library. On Linux install <code>python3-dev</code> and point <code>RETICULATE_PYTHON</code> at a virtual environment made from that Python.</td></tr>
+        <tr><td><code>externally-managed-environment</code></td><td>Your system Python does not take pip installs. Make the virtual environment of step 3.</td></tr>
+        <tr><td><code>every call to the LLM failed; the last error was: …</code></td><td>The provider refused every call: a revoked key, a retired model, no credit. The message is the provider's own; irace stops instead of racing the original alone.</td></tr>
+        <tr><td><code>WARNING: … does not accept ['temperature', 'top_p']</code></td><td>Some models refuse these. irace-evo drops what the API names and calls again; nothing to do.</td></tr>
+        <tr><td><code>Discarding variant_… : it failed the validation test</code></td><td>The variant compiled but crashed, timed out or printed something else than a number on the test instance. It does not race.</td></tr>
+      </table>
+      <div class="note"><p>A run deletes what the previous run left in the same folder: variants, their sources and the LLM logs. Copy them elsewhere first if you want to keep them.</p></div>
+    </section>
+
+    <section id="cite">
+      <div class="step">10 · Cite</div>
+      <h2>The paper</h2>
+      <p>Camilo Chacón Sartori and Christian Blum. <em>irace-evo: Automatic Algorithm Configuration Extended With LLM-Based Code Evolution.</em> MIC 2026, LNCS 16914. Preprint: <a href="https://doi.org/10.48550/arXiv.2511.14794">arXiv:2511.14794</a>.</p>
+      <div class="code"><pre>@misc{chaconsartori2025iraceevo,
+  title         = {irace-evo: Automatic Algorithm Configuration Extended
+                   With LLM-Based Code Evolution},
+  author        = {Chac{\'o}n Sartori, Camilo and Blum, Christian},
+  year          = {2025},
+  eprint        = {2511.14794},
+  archivePrefix = {arXiv},
+  doi           = {10.48550/arXiv.2511.14794},
+  note          = {To appear in MIC 2026, LNCS 16914}
+}</pre></div>
+      <p class="muted">irace-evo is a fork of <a href="https://github.com/MLopez-Ibanez/irace">irace</a> by Manuel López-Ibáñez, Jérémie Dubois-Lacoste, Leslie Pérez Cáceres, Thomas Stützle, Mauro Birattari and contributors, under GPL (≥ 2).</p>
+    </section>
+  </main>
+</div>
+
+<footer><div>irace-evo · Camilo Chacón Sartori and Christian Blum · <a href="https://github.com/camilochs/irace-evo">github.com/camilochs/irace-evo</a></div></footer>
+
+<script>
+(function () {
+  var root = document.documentElement, key = "irace-evo-theme";
+  try { var t = localStorage.getItem(key); if (t) root.setAttribute("data-theme", t); } catch (e) {}
+  document.getElementById("theme").addEventListener("click", function () {
+    var dark = root.getAttribute("data-theme") ? root.getAttribute("data-theme") === "dark"
+             : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    var next = dark ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem(key, next); } catch (e) {}
+  });
+  document.querySelectorAll(".code").forEach(function (box) {
+    var b = document.createElement("button");
+    b.className = "copy"; b.type = "button"; b.textContent = "Copy";
+    b.addEventListener("click", function () {
+      navigator.clipboard.writeText(box.querySelector("pre").innerText).then(function () {
+        b.textContent = "Copied"; setTimeout(function () { b.textContent = "Copy"; }, 1400);
+      });
+    });
+    box.appendChild(b);
+  });
+  var links = Array.prototype.slice.call(document.querySelectorAll("nav.toc a"));
+  var obs = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (e.isIntersecting) links.forEach(function (a) { a.classList.toggle("on", a.getAttribute("href") === "#" + e.target.id); });
+    });
+  }, { rootMargin: "-20% 0px -70% 0px" });
+  document.querySelectorAll("main section").forEach(function (s) { obs.observe(s); });
+})();
+</script>
+</body>
+</html>
